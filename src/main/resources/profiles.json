@@ -1,0 +1,32 @@
+{
+  "lab-edit-v1": {
+    "createGeomIdx": true,
+    "createFk": true,
+    "createFkIdx": true,
+    "createUnique": true,
+    "createEnumTabs": true,
+    "beautifyEnumDispName": true,
+    "createMetaInfo": true,
+    "createNumChecks": true,
+    "createTextChecks": true,
+    "createDateTimeChecks": true,
+    "strokeArcs": true,
+    "defaultSrsCode": "2056",
+    "nameByTopic": true
+  },
+  "lab-pub-v1": {
+    "createGeomIdx": true,
+    "createFk": true,
+    "createFkIdx": true,
+    "createUnique": true,
+    "createEnumTabs": true,
+    "beautifyEnumDispName": true,
+    "createMetaInfo": true,
+    "createNumChecks": true,
+    "createTextChecks": true,
+    "createDateTimeChecks": true,
+    "strokeArcs": true,
+    "defaultSrsCode": "2056",
+    "nameByTopic": false
+  }
+}

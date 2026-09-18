@@ -1,0 +1,26 @@
+plugins {
+    id 'java'
+    id 'org.springframework.boot' version '4.1.1'
+    id 'io.spring.dependency-management' version '1.1.7'
+}
+group = 'ch.so.agi'
+version = '0.1.0'
+java { toolchain { languageVersion = JavaLanguageVersion.of(21) } }
+repositories { mavenCentral() }
+dependencies {
+    implementation platform('org.springframework.ai:spring-ai-bom:2.0.1')
+    implementation 'org.springframework.ai:spring-ai-starter-mcp-server'
+    implementation 'io.modelcontextprotocol.sdk:mcp:2.0.1'
+    implementation 'org.postgresql:postgresql:42.7.8'
+    implementation 'com.fasterxml.jackson.core:jackson-databind:2.20.1'
+    testImplementation 'org.springframework.boot:spring-boot-starter-test'
+}
+tasks.withType(JavaCompile).configureEach { options.compilerArgs.add('-parameters') }
+test { useJUnitPlatform { excludeTags 'integration' } }
+tasks.register('integrationTest', Test) {
+    testClassesDirs = sourceSets.test.output.classesDirs
+    classpath = sourceSets.test.runtimeClasspath
+    useJUnitPlatform { includeTags 'integration' }
+    systemProperty 'netl.workspace', System.getProperty('netl.workspace', '../themenintegration-lab')
+}
+bootJar { archiveFileName = 'netl-mcp.jar' }

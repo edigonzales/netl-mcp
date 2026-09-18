@@ -1,0 +1,15 @@
+#!/usr/bin/env sh
+set -eu
+NETL_DIR=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+if [ -n "${JAVA_HOME:-}" ]; then
+    NETL_JAVA="$JAVA_HOME/bin/java"
+elif java -version >/dev/null 2>&1; then
+    NETL_JAVA=java
+elif [ -x "$HOME/.sdkman/candidates/java/current/bin/java" ]; then
+    # macOS may expose /usr/bin/java even when only SDKMAN JDKs are installed.
+    NETL_JAVA="$HOME/.sdkman/candidates/java/current/bin/java"
+else
+    echo "Java 21+ is required. Set JAVA_HOME to a local JDK installation." >&2
+    exit 2
+fi
+exec "$NETL_JAVA" -jar "$NETL_DIR/build/libs/netl-mcp.jar" "$@"

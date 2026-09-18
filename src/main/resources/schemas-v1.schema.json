@@ -1,0 +1,118 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/netl/schemas-v1.schema.json",
+  "title": "NETL local schema manifest v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "formatVersion",
+    "schemas"
+  ],
+  "properties": {
+    "formatVersion": {
+      "const": 1
+    },
+    "schemas": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "ident",
+          "name",
+          "database",
+          "models",
+          "modelFiles",
+          "profile"
+        ],
+        "properties": {
+          "ident": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_-]{0,62}$"
+          },
+          "name": {
+            "type": "string",
+            "pattern": "^(?!pg_|public$|information_schema$)[a-z][a-z0-9_]{0,62}$"
+          },
+          "database": {
+            "enum": [
+              "edit",
+              "pub"
+            ]
+          },
+          "models": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "pattern": "^[A-Za-z][A-Za-z0-9_]*$"
+            }
+          },
+          "modelFiles": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$)).+\\.ili$"
+            }
+          },
+          "profile": {
+            "enum": [
+              "lab-edit-v1",
+              "lab-pub-v1"
+            ]
+          },
+          "overrides": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "createGeomIdx": {
+                "type": "boolean"
+              },
+              "createFk": {
+                "type": "boolean"
+              },
+              "createFkIdx": {
+                "type": "boolean"
+              },
+              "createUnique": {
+                "type": "boolean"
+              },
+              "createEnumTabs": {
+                "type": "boolean"
+              },
+              "beautifyEnumDispName": {
+                "type": "boolean"
+              },
+              "createMetaInfo": {
+                "type": "boolean"
+              },
+              "createNumChecks": {
+                "type": "boolean"
+              },
+              "createTextChecks": {
+                "type": "boolean"
+              },
+              "createDateTimeChecks": {
+                "type": "boolean"
+              },
+              "strokeArcs": {
+                "type": "boolean"
+              },
+              "defaultSrsCode": {
+                "type": "string",
+                "pattern": "^[0-9]{1,6}$"
+              },
+              "nameByTopic": {
+                "type": "boolean"
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

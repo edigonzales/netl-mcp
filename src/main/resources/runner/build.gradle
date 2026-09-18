@@ -1,0 +1,14 @@
+import ch.so.agi.gretl.tasks.Ili2pgImportSchema
+import groovy.json.JsonSlurper
+apply plugin: 'ch.so.agi.gretl'
+def cfg = new JsonSlurper().parse(file('input.json'))
+def target = cfg.database
+if (!(target in ['edit', 'pub'])) throw new GradleException('Unsupported local database')
+tasks.register('createSchema', Ili2pgImportSchema) {
+    database = ["jdbc:postgresql://${target}-db:5432/${target}", 'netl', 'netl-local']
+    dbschema = cfg.name
+    models = cfg.models.join(';')
+    modeldir = file('models').absolutePath
+    cfg.options.each { key, value -> setProperty(key, value) }
+}
+defaultTasks 'createSchema'
