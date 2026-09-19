@@ -4,7 +4,7 @@ import java.nio.file.*;
 import java.util.*;
 
 final class Configuration {
-    static final String RUNNER = "netl-0.2.0/gretl-3.2.861/ili2pg-5.5.1/postgis-18-3.6";
+    static final String RUNNER = "netl-0.3.0/gretl-3.2.861/ili2pg-5.5.1/postgis-18-3.6";
     final Path workspace;
     final Map<String,Object> profiles;
     Configuration(Path workspace) throws Exception {
@@ -149,7 +149,7 @@ final class Configuration {
     }
     static Map<String,String> runnerHashes() throws Exception {
         var hashes = new TreeMap<String,String>();
-        for (String file : List.of("build.gradle", "settings.gradle", "grants.sql", "netl-run"))
+        for (String file : List.of("build.gradle", "settings.gradle", "grants.sql", "netl-run", "job-init.gradle", "init.gradle"))
             hashes.put(file,Json.hashBytes(Json.resource("runner/" + file)));
         return hashes;
     }

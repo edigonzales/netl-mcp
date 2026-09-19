@@ -8,7 +8,7 @@ import java.util.*;
 import java.util.concurrent.TimeUnit;
 
 class LocalRuntime {
-    static final String GRETL_IMAGE = "netl/gretl:0.2.0";
+    static final String GRETL_IMAGE = "netl/gretl:0.3.0";
     static final String POSTGIS_IMAGE = "postgis/postgis:18-3.6@sha256:60f6ad1d21ea86a67d47780b9a0d1e1d200500f62b19293fa834d0dea80b8677";
     final Path workspace;
     LocalRuntime(Path workspace) { this.workspace = workspace; }
@@ -46,7 +46,7 @@ class LocalRuntime {
         if (!mounted) throw new Failure("ENVIRONMENT_MISMATCH", "GRETL must mount this workspace's .netl directory");
         var args = new ArrayList<>(List.of("docker","exec","themenintegration-lab-gretl-1","sha256sum"));
         var hashes = Configuration.runnerHashes();
-        for (String file : hashes.keySet()) args.add(file.equals("netl-run") ? "/usr/local/bin/netl-run" : "/opt/netl/schema/" + file);
+        for (String file : hashes.keySet()) args.add(file.equals("netl-run") ? "/usr/local/bin/netl-run" : file.equals("init.gradle") ? "/home/gradle/init.gradle" : "/opt/netl/schema/" + file);
         String[] lines = command(args).strip().split("\n");
         int index = 0;
         for (String expected : hashes.values()) {
@@ -96,11 +96,16 @@ class LocalRuntime {
         };
     }
     void execute(Path runDirectory, Path log, Duration timeout, List<String> tasks) throws Exception {
+        executeProject(runDirectory, log, timeout, tasks, false);
+    }
+    void executeProject(Path runDirectory, Path log, Duration timeout, List<String> tasks, boolean job) throws Exception {
         runnerReady();
         Path root = workspace.resolve(".netl").toRealPath(), actual = runDirectory.toRealPath();
         if (!actual.startsWith(root)) throw new Failure("INVALID_CONFIG", "Run outside workspace");
         var args = new ArrayList<>(List.of("docker", "exec", "--user", "1001", "themenintegration-lab-gretl-1",
-            "netl-run", "-PrunDirectory=/workspace/" + root.relativize(actual)));
+            "netl-run"));
+        if (job) args.addAll(List.of("--job-project", "/workspace/" + root.relativize(actual)));
+        args.add("-PrunDirectory=/workspace/" + root.relativize(actual));
         args.addAll(tasks);
         var pb = new ProcessBuilder(args);
         pb.redirectErrorStream(true).redirectOutput(log.toFile());
@@ -128,7 +133,7 @@ class LocalRuntime {
         // server-side statement has finished. Only this runner's tagged sessions.
         for (String database : List.of("edit", "pub")) {
             try (var c = connect(database); var st = c.createStatement();
-                 var rs = st.executeQuery("SELECT pg_terminate_backend(pid,5000) FROM pg_stat_activity WHERE application_name='netl-schema-runner' AND datname=current_database() AND pid<>pg_backend_pid()")) {
+                 var rs = st.executeQuery("SELECT pg_terminate_backend(pid,5000) FROM pg_stat_activity WHERE (application_name='netl-schema-runner' OR application_name LIKE 'netl-job-%') AND datname=current_database() AND pid<>pg_backend_pid()")) {
                 while (rs.next()) if (!rs.getBoolean(1)) throw new Failure("RUNNER_RECOVERY_REQUIRED", "Database job did not terminate");
             }
         }

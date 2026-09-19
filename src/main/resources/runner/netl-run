@@ -1,7 +1,12 @@
 #!/bin/sh
 set -eu
+project=/opt/netl/schema
+if [ "${1:-}" = "--job-project" ]; then
+  project="$2"
+  shift 2
+fi
 # Stable project and JVM options allow daemon and script-cache reuse across runs.
 exec gradle --offline --daemon --console=plain --rerun-tasks \
   '-Dorg.gradle.jvmargs=-Xmx512m -Dfile.encoding=UTF-8' \
-  --init-script /home/gradle/init.gradle -p /opt/netl/schema \
+  --init-script /home/gradle/init.gradle --init-script /opt/netl/schema/job-init.gradle -p "$project" \
   --project-cache-dir /home/gradle/.gradle/netl-project "$@"

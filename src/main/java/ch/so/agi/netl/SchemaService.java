@@ -197,7 +197,11 @@ public final class SchemaService {
     }
     Map<String,Object> execute(Configuration.Spec s, String token, boolean recreate) throws Exception {
         runtime.runnerReady();
-        try (var runnerLock = runtime.lock(); var c=runtime.connect(s.database())) {
+        try (var runnerLock = runtime.lock()) { return executeLocked(s, token, recreate); }
+    }
+    // Caller holds the container lock for the complete isolated job lifecycle.
+    Map<String,Object> executeLocked(Configuration.Spec s, String token, boolean recreate) throws Exception {
+        try (var c=runtime.connect(s.database())) {
             if (!Database.lock(c,s.name())) throw new Failure("BUSY","Another creation is in progress for this schema");
             var before=inspect(s,c);
             if (recreate) {

@@ -51,7 +51,7 @@ Die CLI beendet sich für Fehler und blockierte/abweichende Zustände mit 1, fü
   SDK-2.0.1-STDIO-Fehler (`Failed to enqueue message`) bei parallelen Tool-Aufrufen. Die Tool-Ausführung
   bleibt parallel möglich. Unit-Test und paralleler STDIO-Smoke-Test sichern dieses Verhalten ab.
 - `src/main/resources/runner`: gemeinsame Schema-/Grant-Logik, im NETL-Image ausgeführt und im JAR gehasht.
-- `runtime/Dockerfile`: abgeleitetes `netl/gretl:0.2.0`; Herkunft aus schema-jobs und Lizenz unter `runtime/`.
+- `runtime/Dockerfile`: abgeleitetes `netl/gretl:0.3.0`; Herkunft aus schema-jobs und Lizenz unter `runtime/`.
 - `profiles.json`, `schemas-v1.schema.json`, `schemas-v2.schema.json`: Lab-Profile und Editor-Schemas.
 
 Manifest: `themes/<amt>/<thema>/schemas.json`, `formatVersion: 2`, `schemas: [...]`.
@@ -139,7 +139,7 @@ Das Lab-README beschreibt Agentenaufträge, Zustände und den vollständigen Akz
 
 ## Persistenter Runner und Rollen
 
-Das Image wird mit `docker build -f runtime/Dockerfile -t netl/gretl:0.2.0 .` gebaut.
+Das Image wird mit `docker build -f runtime/Dockerfile -t netl/gretl:0.3.0 .` gebaut.
 Compose im Lab erledigt dies über `docker compose up -d --build --wait`.
 Die gemeinsame Logik läuft per `docker exec`, Benutzer 1001, Daemon und festem JVM-/Gradle-Cache.
 Eine Workspace-Dateisperre umfasst den gesamten Auftrag. Eine hinterlassene Aktivitäts- oder
@@ -147,8 +147,8 @@ Recovery-Markierung blockiert neue Aufträge nach einem Prozessabbruch; kein bli
 Timeout oder fehlerhafter Runner-Exit stoppt den dedizierten Container, beendet ausschliesslich
 markierte Datenbanksitzungen und startet den Container wieder. Erfolgreiche Läufe behalten den Daemon.
 
-Die interne Runtime kann weitere Tasknamen ausführen; öffentlich sind weiterhin nur Schema-Operationen
-verfügbar. Laufdaten enthalten die Daemon-Identität. Die Integrationstests schreiben eine gemessene
+Die Runtime kann kopierte Jobprojekte und das feste Schemaprojekt ausführen. Laufdaten enthalten
+die Daemon-Identität. Die Schema-Integrationstests schreiben eine gemessene
 Kalt-/Warmlauf-Gegenüberstellung nach `.netl/acceptance/daemon-reuse.json` im Lab.
 
 Schema-Rollen werden atomar mit dem Schema neu angelegt. Gleichnamige bestehende Rollen blockieren.
@@ -162,3 +162,26 @@ Legacy-Läufe ohne Rollenbeleg erhalten bei Inspection `roleManagement=LEGACY_UN
 `drop-previous` entfernt exakt n-1, nie automatisch die letzte existierende Version. v1 und
 unversionierte Schemas werden abgewiesen. Der Plan bindet aktuelle Konfiguration, Ziel und dessen
 Inspection; die Ausführung verbraucht das Token und protokolliert auch Fehlschläge.
+
+## GRETL-Datenumbaujobs (0.3.0)
+
+CLI: `job context THEME`, `job validate|test|plan|status THEME JOB`,
+`job confirm THEME JOB EXPECTATIONS_REVISION`, `job run THEME JOB PLAN_TOKEN`.
+Entsprechende MCP-Tools tragen den Prefix `job_`. Zusätzlich gibt es getrennte
+`job_write_transform`- und `job_write_test`-Werkzeuge für delegierte Autoren/Prüfer.
+Bestätigung setzt eine ausdrückliche Benutzerentscheidung voraus, keine LLM-Selbstfreigabe.
+
+Job-Artefakte liegen im Lab unter `themes/<theme>/jobs/<job>/`; vollständiger Vertrag,
+Demo und Agentenablauf stehen in `../themenintegration-lab/docs/jobs.md`.
+`JobConfiguration` validiert Dateien und getrennte Transformations-/Erwartungsrevisionen;
+`JobService` orchestriert isolierte Fixtures, Db2Db-Wiederholung und tokengebundene lokale Läufe;
+`JobChecks` führt generische und fachliche Verletzungsabfragen unabhängig vom Gradle-Prozess aus.
+Ein erfolgreicher Prozess ist keine fachliche Abnahme. Ohne Bestätigung: `GENERIC_ONLY`.
+Bei nachgelagertem Assert-Fehler: `FAILED`, möglicherweise bereits veränderte Zieldaten,
+kein behaupteter Rollback und kein automatischer Retry.
+
+`./gradlew test bootJar` und `./gradlew integrationTest --tests '*JobIntegrationTest'`.
+Tests verwenden ausschliesslich eigene lokale synthetische Schemas und temporäre DML-Rollen.
+Der neue Runner-/Init-Fingerprint macht alte Schema-Nachweise sichtbar DRIFTED, ohne automatische
+Adoption oder Neuerstellung. Sicherheitsgrenze: Gradle-Code im lokalen Lab ist vertrauenswürdig,
+nicht sandboxed. Kein Produktionsbetrieb.

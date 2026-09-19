@@ -1,0 +1,10 @@
+import groovy.json.JsonOutput
+gradle.projectsEvaluated {
+    def project = gradle.rootProject
+    if (project.hasProperty('netlJobRun')) {
+        def bean = java.lang.management.ManagementFactory.runtimeMXBean
+        new File(project.projectDir, 'runtime.json').text = JsonOutput.toJson([
+            daemon: bean.name, startedAt: bean.startTime
+        ])
+    }
+}

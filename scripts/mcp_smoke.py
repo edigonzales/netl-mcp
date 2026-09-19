@@ -99,7 +99,8 @@ try:
                        'clientInfo': {'name': 'netl-smoke', 'version': '1'}})
     send('notifications/initialized', {}, notification=True)
     tools = send('tools/list', {})['tools']
-    assert {t['name'] for t in tools} == {'schema_list', 'schema_plan', 'schema_create', 'schema_inspect', 'schema_recreate', 'schema_drop_previous', 'config_context', 'config_validate', 'config_save'}
+    assert {t['name'] for t in tools} == {'schema_list', 'schema_plan', 'schema_create', 'schema_inspect', 'schema_recreate', 'schema_drop_previous', 'config_context', 'config_validate', 'config_save',
+        'job_context', 'job_validate', 'job_confirm', 'job_test', 'job_plan', 'job_run', 'job_status', 'job_write_transform', 'job_write_test'}
     validate_schema = next(t for t in tools if t['name'] == 'config_validate')['inputSchema']['properties']['manifest']
     assert validate_schema['properties']['formatVersion']['type'] == 'integer'
     assert validate_schema['properties']['schemas']['items']['properties']['overrides']['properties']['nameByTopic']['type'] == 'boolean'

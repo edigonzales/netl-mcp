@@ -13,6 +13,7 @@ public class Application {
         return new SerialStdioTransport(io.modelcontextprotocol.json.McpJsonDefaults.getMapper());
     }
     @Bean SchemaService schemaService() throws Exception { return new SchemaService(workspace); }
+    @Bean JobService jobService() throws Exception { return new JobService(workspace); }
     public static void main(String[] args) throws Exception {
         var arguments=new ArrayList<>(List.of(args));
         String location=System.getenv().getOrDefault("NETL_WORKSPACE", ".");
@@ -36,6 +37,14 @@ public class Application {
                 else if (operation.equals("save") && arguments.size() == 5)
                     result = service.save(theme, Json.object(Files.readAllBytes(Path.of(arguments.get(3)))), arguments.get(4));
                 else { usage(); return; }
+            } else if (group.equals("job")) {
+                var service = new JobService(workspace);
+                if (operation.equals("context") && arguments.size()==3) result=service.call(operation,theme,null,null);
+                else if (Set.of("validate","test","plan","status").contains(operation) && arguments.size()==4)
+                    result=service.call(operation,theme,arguments.get(3),null);
+                else if (Set.of("confirm","run").contains(operation) && arguments.size()==5)
+                    result=service.call(operation,theme,arguments.get(3),arguments.get(4));
+                else { usage(); return; }
             } else if (group.equals("schema")) {
                 var service = new SchemaService(workspace);
                 if (operation.equals("list") && arguments.size() == 3) result = service.call(operation,theme,null);
@@ -51,9 +60,10 @@ public class Application {
             } else { usage(); return; }
         } catch (Exception e) { result=SchemaService.error(e); }
         System.out.println(json ? Json.MAPPER.writeValueAsString(result) : Json.MAPPER.writerWithDefaultPrettyPrinter().writeValueAsString(result));
-        if (Set.of("ERROR","BLOCKED","INCOMPLETE","DRIFTED","UNMANAGED").contains(result.get("status"))) System.exit(1);
+        if (Set.of("ERROR","BLOCKED","INCOMPLETE","DRIFTED","UNMANAGED","FAILED","GENERIC_ONLY").contains(result.get("status"))) System.exit(1);
     }
     static void usage() {
+        System.err.println("Jobs: job context THEME | job validate|test|plan|status THEME JOB | job confirm THEME JOB EXPECTATIONS_REVISION | job run THEME JOB PLAN_TOKEN");
         System.err.println("Usage: netl [--workspace PATH] mcp | schema list THEME [--json] | schema plan THEME SCHEMA [create|recreate|drop-previous] [--json] | schema create|inspect THEME SCHEMA [--json] | schema recreate|drop-previous THEME SCHEMA TOKEN [--json] | config context THEME [--json] | config validate THEME FILE [--json] | config save THEME FILE REVISION [--json]");
         System.exit(2);
     }
