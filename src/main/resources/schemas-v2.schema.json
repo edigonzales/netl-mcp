@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://example.invalid/netl/schemas-v1.schema.json",
-  "title": "NETL local schema manifest v1",
+  "$id": "https://example.invalid/netl/schemas-v2.schema.json",
+  "title": "NETL local schema manifest v2",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -10,7 +10,7 @@
   ],
   "properties": {
     "formatVersion": {
-      "const": 1,
+      "const": 2,
       "type": "integer"
     },
     "schemas": {
@@ -21,7 +21,7 @@
         "additionalProperties": false,
         "required": [
           "ident",
-          "name",
+          "baseName",
           "database",
           "models",
           "modelFiles",
@@ -31,10 +31,6 @@
           "ident": {
             "type": "string",
             "pattern": "^[a-z][a-z0-9_-]{0,62}$"
-          },
-          "name": {
-            "type": "string",
-            "pattern": "^(?!pg_|public$|information_schema$)[a-z][a-z0-9_]{0,62}$"
           },
           "database": {
             "enum": [
@@ -111,6 +107,44 @@
               },
               "nameByTopic": {
                 "type": "boolean"
+              }
+            }
+          },
+          "baseName": {
+            "type": "string",
+            "pattern": "^(?!pg_|public$|information_schema$)[a-z][a-z0-9_]{0,62}$"
+          },
+          "schemaVersion": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 2147483647
+          },
+          "roleSuffix": {
+            "type": "string",
+            "pattern": "^(_[a-z][a-z0-9_]*)?$"
+          },
+          "schemaComment": {
+            "type": "string"
+          },
+          "sqlFiles": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "views": {
+                "type": "string",
+                "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$)).+\\.sql$"
+              },
+              "postscript": {
+                "type": "string",
+                "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$)).+\\.sql$"
+              },
+              "stdcols": {
+                "type": "string",
+                "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$)).+\\.sql$"
+              },
+              "grants": {
+                "type": "string",
+                "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$)).+\\.sql$"
               }
             }
           }

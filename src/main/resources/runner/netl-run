@@ -1,0 +1,7 @@
+#!/bin/sh
+set -eu
+# Stable project and JVM options allow daemon and script-cache reuse across runs.
+exec gradle --offline --daemon --console=plain --rerun-tasks \
+  '-Dorg.gradle.jvmargs=-Xmx512m -Dfile.encoding=UTF-8' \
+  --init-script /home/gradle/init.gradle -p /opt/netl/schema \
+  --project-cache-dir /home/gradle/.gradle/netl-project "$@"

@@ -1,14 +1,69 @@
 import ch.so.agi.gretl.tasks.Ili2pgImportSchema
 import groovy.json.JsonSlurper
+import groovy.json.JsonOutput
+import groovy.sql.Sql
+
 apply plugin: 'ch.so.agi.gretl'
-def cfg = new JsonSlurper().parse(file('input.json'))
-def target = cfg.database
-if (!(target in ['edit', 'pub'])) throw new GradleException('Unsupported local database')
-tasks.register('createSchema', Ili2pgImportSchema) {
-    database = ["jdbc:postgresql://${target}-db:5432/${target}", 'netl', 'netl-local']
+def run = new File(project.property('runDirectory').toString())
+def cfg = new JsonSlurper().parse(new File(run, 'input.json'))
+if (!(cfg.database in ['edit', 'pub'])) throw new GradleException('Unsupported local database')
+def connection = ["jdbc:postgresql://${cfg.database}-db:5432/${cfg.database}?ApplicationName=netl-schema-runner".toString(), 'netl', 'netl-local']
+def readRole = cfg.name + cfg.roleSuffix + '_read'
+def writeRole = cfg.name + cfg.roleSuffix + '_write'
+def withSql = { action ->
+    def props = new Properties()
+    props.setProperty('user', connection[1]); props.setProperty('password', connection[2])
+    def sql = new Sql(new org.postgresql.Driver().connect(connection[0], props))
+    try { sql.withTransaction { action(sql) } } finally { sql.close() }
+}
+def executeHook = { sql, key ->
+    def script = new File(run, "sql/${key}.sql")
+    if (script.exists()) sql.execute(script.getText('UTF-8')
+        .replace('${dbSchema}', cfg.name).replace('${roleSuffix}', cfg.roleSuffix))
+}
+tasks.register('createEmptySchema') {
+    doLast {
+        def roles = [:]
+        withSql { sql ->
+            sql.execute("CREATE SCHEMA ${cfg.name}".toString())
+            for (role in [readRole, writeRole]) {
+                sql.execute("CREATE ROLE ${role} NOLOGIN".toString())
+                roles[role] = sql.firstRow('SELECT oid::bigint AS id FROM pg_roles WHERE rolname = ?', [role]).id
+            }
+        }
+        new File(run, 'roles.json').text = JsonOutput.toJson(roles)
+        new File(run, 'runtime.json').text = JsonOutput.toJson([
+            daemon: java.lang.management.ManagementFactory.runtimeMXBean.name,
+            daemonStartedAt: java.lang.management.ManagementFactory.runtimeMXBean.startTime])
+    }
+}
+tasks.register('importSchema', Ili2pgImportSchema) {
+    dependsOn 'createEmptySchema'
+    database = connection
     dbschema = cfg.name
     models = cfg.models.join(';')
-    modeldir = file('models').absolutePath
+    modeldir = new File(run, 'models').absolutePath
     cfg.options.each { key, value -> setProperty(key, value) }
 }
+tasks.register('configureSchema') {
+    dependsOn 'importSchema'
+    doLast {
+        withSql { sql ->
+            sql.execute("COMMENT ON SCHEMA ${cfg.name} IS '${cfg.schemaComment.replace("'", "''")}'".toString())
+            ['views', 'postscript', 'stdcols'].each { executeHook(sql, it) }
+        }
+    }
+}
+tasks.register('grantPrivileges') {
+    dependsOn 'configureSchema'
+    doLast {
+        withSql { sql ->
+            def grants = file('grants.sql').getText('UTF-8')
+                .replace('${dbSchema}', cfg.name).replace('${roleSuffix}', cfg.roleSuffix)
+            sql.execute(grants)
+            executeHook(sql, 'grants')
+        }
+    }
+}
+tasks.register('createSchema') { dependsOn 'grantPrivileges' }
 defaultTasks 'createSchema'
