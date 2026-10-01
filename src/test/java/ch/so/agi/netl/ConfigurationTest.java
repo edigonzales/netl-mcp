@@ -113,4 +113,18 @@ class ConfigurationTest {
         assertEquals("UNMANAGED", assertThrows(Failure.class, () -> service.requireManaged(spec)).code);
     }
 
+    @Test void explicitRepositoriesAreValidatedOfflineAndFingerprinted() throws Exception {
+        entry.remove("name");entry.put("baseName","custom");
+        String local=v2().fingerprint();
+        entry.put("modelRepositories",List.of("https://geo.so.ch/models"));
+        var remote=v2();assertNotEquals(local,remote.fingerprint());
+        assertEquals(List.of("https://geo.so.ch/models/"),remote.effective().get("modelRepositories"));
+        entry.put("modelRepositories",List.of());assertEquals(List.of(),v2().effective().get("modelRepositories"));
+        for(String invalid:List.of("file:///tmp/models","%ILI_FROM_DB","https://user:secret@example.invalid/","https://example.invalid/?q=x","https://example.invalid/#x","https://example.invalid/;https://other.invalid/")) {
+            entry.put("modelRepositories",List.of(invalid));assertThrows(Failure.class,this::v2);
+        }
+        entry.put("modelRepositories",List.of("https://example.invalid/","https://example.invalid"));assertThrows(Failure.class,this::v2);
+        entry.put("name",entry.remove("baseName"));write();assertThrows(Failure.class,this::spec);
+    }
+
 }

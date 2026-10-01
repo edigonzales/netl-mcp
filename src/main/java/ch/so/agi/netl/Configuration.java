@@ -4,7 +4,7 @@ import java.nio.file.*;
 import java.util.*;
 
 final class Configuration {
-    static final String RUNNER = "netl-0.3.0/gretl-3.2.861/ili2pg-5.5.1/postgis-18-3.6";
+    static final String RUNNER = "netl-0.4.0/gretl-3.2.861/ili2pg-5.5.1/postgis-18-3.6";
     final Path workspace;
     final Map<String,Object> profiles;
     Configuration(Path workspace) throws Exception {
@@ -62,7 +62,7 @@ final class Configuration {
         for (Object entry : (List<?>)root.get("schemas")) {
             require(entry instanceof Map<?,?>, "Schema must be an object");
             Map<?,?> m = (Map<?,?>)entry;
-            keys(m, versioned ? Set.of("ident","baseName","schemaVersion","database","models","modelFiles","profile","overrides","roleSuffix","schemaComment","sqlFiles") : Set.of("ident","name","database","models","modelFiles","profile","overrides"));
+            keys(m, versioned ? Set.of("ident","baseName","schemaVersion","database","models","modelFiles","modelRepositories","profile","overrides","roleSuffix","schemaComment","sqlFiles") : Set.of("ident","name","database","models","modelFiles","profile","overrides"));
             String id = string(m,"ident"), base = string(m,versioned ? "baseName" : "name"), database = string(m,"database"), profile = string(m,"profile");
             Integer version = null;
             if (m.containsKey("schemaVersion")) {
@@ -93,6 +93,21 @@ final class Configuration {
             }
             var models = strings(m,"models");
             for (String model : models) require(model.matches("[A-Za-z][A-Za-z0-9_]*"), "Invalid model name");
+            var repositories = new ArrayList<String>();
+            if (m.containsKey("modelRepositories")) {
+                require(versioned && m.get("modelRepositories") instanceof List<?>, "modelRepositories requires a v2 URL array");
+                for (Object item : (List<?>)m.get("modelRepositories")) {
+                    require(item instanceof String, "Repository URL must be a string");
+                    java.net.URI uri;
+                    try { uri = new java.net.URI((String)item); }
+                    catch (java.net.URISyntaxException e) { throw new Failure("INVALID_CONFIG", "Invalid repository URL"); }
+                    require(Set.of("http","https").contains(String.valueOf(uri.getScheme())) && uri.getHost()!=null
+                        && uri.getRawUserInfo()==null && uri.getRawQuery()==null && uri.getRawFragment()==null
+                        && !((String)item).contains(";"), "Repository must be an HTTP/HTTPS URL without credentials, query, fragment or placeholders");
+                    String url=uri.toASCIIString(); if (!url.endsWith("/")) url+="/";
+                    require(!repositories.contains(url), "Duplicate repository URL"); repositories.add(url);
+                }
+            }
             var modelFiles = strings(m,"modelFiles");
             var files = new TreeMap<String,byte[]>();
             for (String file : modelFiles) {
@@ -136,6 +151,7 @@ final class Configuration {
             var hashes = new TreeMap<String,String>();
             for (var file : files.entrySet()) hashes.put(file.getKey(), Json.hashBytes(file.getValue()));
             effective.put("modelHashes",hashes);
+            if (m.containsKey("modelRepositories")) effective.put("modelRepositories",repositories);
             effective.put("images", Map.of("gretl", LocalRuntime.GRETL_IMAGE, "postgis", LocalRuntime.POSTGIS_IMAGE));
             effective.put("runnerHashes", runnerHashes());
             String fingerprint = Json.hash(effective);
@@ -149,7 +165,7 @@ final class Configuration {
     }
     static Map<String,String> runnerHashes() throws Exception {
         var hashes = new TreeMap<String,String>();
-        for (String file : List.of("build.gradle", "settings.gradle", "grants.sql", "netl-run", "job-init.gradle", "init.gradle"))
+        for (String file : List.of("build.gradle", "settings.gradle", "grants.sql", "netl-run", "job-init.gradle", "init.gradle", "resolve-models.gradle"))
             hashes.put(file,Json.hashBytes(Json.resource("runner/" + file)));
         return hashes;
     }

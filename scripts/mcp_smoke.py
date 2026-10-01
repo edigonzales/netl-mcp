@@ -33,6 +33,7 @@ def physical_name(entry):
 
 for entry in manifest['schemas']:
     entry['baseName'] = 'netl_mcp_' + suffix + '_' + entry['database']
+    entry['modelRepositories'] = []
 draft = test_dir / 'draft.json'
 draft.write_text(json.dumps(manifest))
 def read_stdout():
@@ -104,6 +105,12 @@ try:
     validate_schema = next(t for t in tools if t['name'] == 'config_validate')['inputSchema']['properties']['manifest']
     assert validate_schema['properties']['formatVersion']['type'] == 'integer'
     assert validate_schema['properties']['schemas']['items']['properties']['overrides']['properties']['nameByTopic']['type'] == 'boolean'
+    assert validate_schema['properties']['schemas']['items']['properties']['modelRepositories']['type'] == 'array'
+    plan_schema = next(t for t in tools if t['name'] == 'schema_plan')['inputSchema']
+    assert plan_schema['properties']['refreshModels']['type'] == 'boolean'
+    assert invoke('schema_plan', {'theme': test_theme, 'schema': 'edit', 'operation': 'create', 'refreshModels': True})['code'] == 'INVALID_OPERATION'
+    invalid_refresh = subprocess.run(command + ['schema', 'list', 'demo/standorte', '--refresh-models', '--json'], capture_output=True, text=True)
+    assert invalid_refresh.returncode == 2
     assert tool('list') == cli('list')
     # OpenCode may issue independent inspections concurrently. Both response IDs
     # must be returned; a sequential-only smoke test misses transport races.
@@ -148,7 +155,14 @@ try:
             again = subprocess.run(command + ['schema', 'create', test_theme, entry['ident'], '--json'],
                                    capture_output=True, text=True, timeout=180)
             assert json.loads(again.stdout)['status'] == 'ALREADY_PRESENT'
-            planned = invoke('schema_plan', {**target, 'operation': 'recreate'})
+            if entry['ident'] == 'pub':
+                planned_cli = subprocess.run(command + ['schema', 'plan', test_theme, entry['ident'], 'recreate', '--refresh-models', '--json'], capture_output=True, text=True, timeout=180)
+                assert planned_cli.returncode == 0, planned_cli.stderr
+                planned = json.loads(planned_cli.stdout)
+                assert planned['refreshModels'] is True
+            else:
+                planned = invoke('schema_plan', {**target, 'operation': 'recreate', 'refreshModels': False})
+                assert planned['refreshModels'] is False
             assert planned['status'] == 'READY', planned
             if entry['ident'] == 'edit':
                 recreated = invoke('schema_recreate', {**target, 'planToken': planned['planToken']})

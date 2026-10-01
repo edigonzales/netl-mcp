@@ -241,7 +241,7 @@ class SchemaIntegrationTest {
     @Test void invalidModelRecordsFailureAndDoesNotRetry() throws Exception {
         Files.writeString(directory.resolve("Lab_Standorte_Edit.ili"),"INTERLIS 2.3; invalid model");
         var result=service.call("create",theme,"edit");
-        assertEquals("RUNNER_FAILED",result.get("code"),result.toString());
+        assertEquals("MODEL_PREPARATION_FAILED",result.get("code"),result.toString());
         assertTrue(Files.exists(Path.of((String)result.get("logPath"))));
         assertEquals("INCOMPLETE",service.call("inspect",theme,"edit").get("status"));
         assertEquals("BLOCKED",service.call("create",theme,"edit").get("status"));
@@ -312,17 +312,18 @@ class SchemaIntegrationTest {
             } finally { st.execute("DROP SCHEMA " + foreign + " CASCADE"); }
         }
     }
-    @Test void failedRecreateIsIncompleteAndExplicitNewPlanRecovers() throws Exception {
+    @Test void invalidRecreatePreparationPreservesOldSchema() throws Exception {
         assertEquals("CREATED", service.call("create",theme,"edit").get("status"));
         Path model=directory.resolve("Lab_Standorte_Edit.ili");
         String original=Files.readString(model);
         Files.writeString(model,"INTERLIS 2.3; invalid");
-        var failed=service.recreate(theme,"edit",token());
-        assertEquals("RUNNER_FAILED",failed.get("code"),failed.toString());
-        assertTrue(Files.exists(Path.of((String) failed.get("logPath"))));
-        assertEquals("INCOMPLETE",service.call("inspect",theme,"edit").get("status"));
-        assertEquals("BLOCKED",service.call("create",theme,"edit").get("status"));
+        var plan=service.plan(theme,"edit","recreate");
+        assertEquals("BLOCKED",plan.get("status"));
+        assertEquals("MODEL_PREPARATION_FAILED",((Map<?,?>)plan.get("problem")).get("code"));
+        try(var c=service.runtime.connect("edit")) { assertTrue(Database.exists(c,edit)); }
+        assertEquals("DRIFTED",service.call("inspect",theme,"edit").get("status"));
         Files.writeString(model,original);
+        assertEquals("MATCHING",service.call("inspect",theme,"edit").get("status"));
         assertEquals("RECREATED",service.recreate(theme,"edit",token()).get("status"));
     }
 

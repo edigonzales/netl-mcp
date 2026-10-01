@@ -25,6 +25,8 @@ public class Application {
         workspace=Path.of(location);
         if (arguments.equals(List.of("mcp"))) { SpringApplication.run(Application.class); return; }
         boolean json=arguments.remove("--json");
+        boolean refreshModels=arguments.remove("--refresh-models");
+        if (refreshModels && !(arguments.size()==5 && arguments.get(0).equals("schema") && arguments.get(1).equals("plan") && arguments.get(4).equals("recreate"))) { usage(); return; }
         Map<String,Object> result;
         try {
             if (arguments.size() < 3) { usage(); return; }
@@ -49,7 +51,7 @@ public class Application {
                 var service = new SchemaService(workspace);
                 if (operation.equals("list") && arguments.size() == 3) result = service.call(operation,theme,null);
                 else if (operation.equals("plan") && (arguments.size() == 4 || arguments.size() == 5))
-                    result = service.plan(theme, arguments.get(3), arguments.size() == 5 ? arguments.get(4) : "create");
+                    result = service.plan(theme, arguments.get(3), arguments.size() == 5 ? arguments.get(4) : "create",refreshModels);
                 else if (operation.equals("recreate") && arguments.size() == 5)
                     result = service.recreate(theme, arguments.get(3), arguments.get(4));
                 else if (operation.equals("drop-previous") && arguments.size() == 5)
@@ -64,7 +66,7 @@ public class Application {
     }
     static void usage() {
         System.err.println("Jobs: job context THEME | job validate|test|plan|status THEME JOB | job confirm THEME JOB EXPECTATIONS_REVISION | job run THEME JOB PLAN_TOKEN");
-        System.err.println("Usage: netl [--workspace PATH] mcp | schema list THEME [--json] | schema plan THEME SCHEMA [create|recreate|drop-previous] [--json] | schema create|inspect THEME SCHEMA [--json] | schema recreate|drop-previous THEME SCHEMA TOKEN [--json] | config context THEME [--json] | config validate THEME FILE [--json] | config save THEME FILE REVISION [--json]");
+        System.err.println("Usage: netl [--workspace PATH] mcp | schema list THEME [--json] | schema plan THEME SCHEMA [create|recreate|drop-previous] [--refresh-models (recreate only)] [--json] | schema create|inspect THEME SCHEMA [--json] | schema recreate|drop-previous THEME SCHEMA TOKEN [--json] | config context THEME [--json] | config validate THEME FILE [--json] | config save THEME FILE REVISION [--json]");
         System.exit(2);
     }
 }

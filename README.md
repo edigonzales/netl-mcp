@@ -26,7 +26,7 @@ Es gibt keine Laufzeitabhängigkeit von `gretljobs`, `schema-jobs` oder `interli
 | Tool | Parameter | Verhalten |
 | --- | --- | --- |
 | `schema_list` | `theme` | Konfiguration lesen, offline möglich |
-| `schema_plan` | `theme`, `schema`, optional `operation` | Effektive Konfiguration, Herkunft der Defaults und lokale Voraussetzungen |
+| `schema_plan` | `theme`, `schema`, optional `operation`, `refreshModels` | Effektive Konfiguration, Herkunft der Defaults und lokale Voraussetzungen |
 | `schema_create` | `theme`, `schema` | Nur fehlendes Schema erstellen; Wiederholung ist ein No-op bei passendem Stand |
 | `schema_inspect` | `theme`, `schema` | Strukturaufnahme und Vergleich mit dem letzten erfolgreichen Lauf |
 | `schema_recreate` | `theme`, `schema`, `planToken` | Expliziter Neuaufbau eines verwalteten Schemas |
@@ -51,17 +51,18 @@ Die CLI beendet sich für Fehler und blockierte/abweichende Zustände mit 1, fü
   SDK-2.0.1-STDIO-Fehler (`Failed to enqueue message`) bei parallelen Tool-Aufrufen. Die Tool-Ausführung
   bleibt parallel möglich. Unit-Test und paralleler STDIO-Smoke-Test sichern dieses Verhalten ab.
 - `src/main/resources/runner`: gemeinsame Schema-/Grant-Logik, im NETL-Image ausgeführt und im JAR gehasht.
-- `runtime/Dockerfile`: abgeleitetes `netl/gretl:0.3.0`; Herkunft aus schema-jobs und Lizenz unter `runtime/`.
+- `runtime/Dockerfile`: abgeleitetes `netl/gretl:0.4.0`; Herkunft aus schema-jobs und Lizenz unter `runtime/`.
 - `profiles.json`, `schemas-v1.schema.json`, `schemas-v2.schema.json`: Lab-Profile und Editor-Schemas.
 
 Manifest: `themes/<amt>/<thema>/schemas.json`, `formatVersion: 2`, `schemas: [...]`.
 Einträge enthalten `ident`, `baseName`, `database`, `models`, `modelFiles`, `profile`, optional `schemaVersion`,
-`overrides`, `roleSuffix`, `schemaComment`, `sqlFiles` (views/postscript/stdcols/grants).
+`overrides`, `modelRepositories`, `roleSuffix`, `schemaComment`, `sqlFiles` (views/postscript/stdcols/grants).
 Physischer Name: baseName_vN, ohne Version baseName. Format 1 bleibt mit vollständig ausgeschriebenem `name` lesbar.
 Formatwechsel müssen Ziel und Rollen erhalten; Versionswechsel im Format 2 erlauben parallele Schema-Versionen.
 Unbekannte Felder, doppelte Identifier/Ziele, falsche Typen und Workspace-Ausbrüche werden abgewiesen.
-Alle Modellabhängigkeiten sind explizit lokal aufzuführen. Basenames müssen eindeutig sein.
-Der Compiler sucht nur im kopierten Modellverzeichnis.
+Lokale Dateien stehen explizit in `modelFiles`; optionale `modelRepositories` im Format 2 lösen
+importierte Abhängigkeiten auf. Hauptmodelle bleiben lokal. Basenames müssen eindeutig sein.
+Der eigentliche Schemaimport sucht ausschliesslich im vorbereiteten, eingefrorenen Modellverzeichnis.
 
 Die Profile setzen LV95, Geometrie-/FK-Indizes, FK-/Unique-/Zahlen-/Text-/Datumsprüfungen,
 Enum-Tabellen, lesbare Enum-Namen, Metainformationen und `strokeArcs=true`.
@@ -139,7 +140,7 @@ Das Lab-README beschreibt Agentenaufträge, Zustände und den vollständigen Akz
 
 ## Persistenter Runner und Rollen
 
-Das Image wird mit `docker build -f runtime/Dockerfile -t netl/gretl:0.3.0 .` gebaut.
+Das Image wird mit `docker build -f runtime/Dockerfile -t netl/gretl:0.4.0 .` gebaut.
 Compose im Lab erledigt dies über `docker compose up -d --build --wait`.
 Die gemeinsame Logik läuft per `docker exec`, Benutzer 1001, Daemon und festem JVM-/Gradle-Cache.
 Eine Workspace-Dateisperre umfasst den gesamten Auftrag. Eine hinterlassene Aktivitäts- oder
@@ -163,7 +164,7 @@ Legacy-Läufe ohne Rollenbeleg erhalten bei Inspection `roleManagement=LEGACY_UN
 unversionierte Schemas werden abgewiesen. Der Plan bindet aktuelle Konfiguration, Ziel und dessen
 Inspection; die Ausführung verbraucht das Token und protokolliert auch Fehlschläge.
 
-## GRETL-Datenumbaujobs (0.3.0)
+## GRETL-Datenumbaujobs (0.4.0)
 
 CLI: `job context THEME`, `job validate|test|plan|status THEME JOB`,
 `job confirm THEME JOB EXPECTATIONS_REVISION`, `job run THEME JOB PLAN_TOKEN`.
@@ -185,3 +186,46 @@ Tests verwenden ausschliesslich eigene lokale synthetische Schemas und temporär
 Der neue Runner-/Init-Fingerprint macht alte Schema-Nachweise sichtbar DRIFTED, ohne automatische
 Adoption oder Neuerstellung. Sicherheitsgrenze: Gradle-Code im lokalen Lab ist vertrauenswürdig,
 nicht sandboxed. Kein Produktionsbetrieb.
+
+## Externe Modellabhängigkeiten (0.4.0)
+
+Manifestformat 2 erlaubt pro Schema `modelRepositories`, eine geordnete Liste von HTTP-/HTTPS-URLs,
+zum Beispiel `["https://geo.so.ch/models/"]`. Fehlendes Feld oder `[]` bedeutet rein lokalen Betrieb;
+Format 1 erhält keine Repository-Option. `modelFiles` enthält eigene lokale Hauptmodelle und optional
+lokale Abhängigkeiten. Die unter `models` gewählten Hauptmodelle müssen dort definiert sein.
+Konfigurationsvalidierung bleibt offline; `VALID` beweist keine Auflösung oder Kompilierung.
+
+Vor einem Schemaimport bereitet der gebundene ili2c den transitiven Modellstand vor und kompiliert ihn.
+Priorität: lokale Dateien, wiederverwendete Abhängigkeiten, konfigurierte Repositories. ili2c folgt auch
+Repository-Verweisen; aufgesuchte URLs werden protokolliert. Jede externe Auflösung hat einen eigenen
+Cache, ohne stille Verwendung alter Downloads. Gradles `--offline` betrifft Gradle-Abhängigkeiten,
+nicht die ausdrückliche Modellauflösung. Der Import selbst erhält nur die eingefrorenen lokalen Dateien.
+Modelle und Nachweise liegen ausserhalb von Git unter `.netl/model-runs/`; die Schema-Läufe archivieren
+zusätzlich `db-models.json` aus `t_ili2db_model`. Dateien können mehrere Modelle enthalten.
+
+Ein neues Schema-Ziel löst Abhängigkeiten neu auf. Ein Neuaufbau verwendet dokumentierte Abhängigkeiten
+wieder und ergänzt neu benötigte Imports; vorhandene Abhängigkeiten werden nicht still aktualisiert.
+Für eine ausdrücklich gewünschte Aktualisierung:
+
+```sh
+bin/netl --workspace ../themenintegration-lab schema plan demo/standorte edit recreate --refresh-models --json
+```
+
+MCP: `schema_plan(theme, schema, operation="recreate", refreshModels=true)`.
+Der Plan kompiliert den gewählten Modellstand vor dem DROP und bindet ihn an das einmalige Token.
+`schema_recreate` löst nichts erneut auf. Eine fehlgeschlagene Vorbereitung lässt das bestehende Schema
+unverändert. Fehler nennen den Vorbereitungslog; bei fehlgeschlagener erstmaliger Erstellung wird ein
+FAILED-Nachweis gespeichert und weiteres gewöhnliches create blockiert. Fehlende Legacy-Kopien erfordern
+`refreshModels`; beschädigte Nachweise erfordern Untersuchung. Kein automatischer Neuaufbau oder Retry.
+
+Inspection fragt keine Repositories ab. Sie vergleicht lokale Eingaben, Struktur, Rechte und gespeicherte
+Modellinhalte (ohne `importDate`). Repository-Änderungen allein ergeben keinen Drift; geänderte
+DB-Modellinhalte ergeben DRIFTED, beschädigte Snapshot-Dateien MODEL_EVIDENCE_INVALID.
+MATCHING bleibt ein Vergleich mit dem erfolgreichen Lauf, keine semantische Verifikation.
+Jobtests verwenden dokumentierte Modellstände oder bereiten für noch fehlende Ziele eigene vor.
+Lokale Jobpläne verlangen exakt die getesteten Quell-/Ziel-Modellstände; Abweichungen erfordern einen neuen
+Test. Die fachliche Benutzerbestätigung wird durch die Auflösung niemals ersetzt.
+
+Kontrollierte Integrationstests verwenden ein eigenes HTTP-Repository mit synthetischen Modellen.
+Der Runner erreicht den Testserver standardmässig über `host.docker.internal`; bei anderer Docker-
+Netzwerkumgebung `-Dnetl.modelTestHost=<vom Container erreichbarer Host>` setzen.

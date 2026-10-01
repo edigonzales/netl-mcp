@@ -1,0 +1,106 @@
+buildscript { dependencies { classpath fileTree(dir: '/home/gradle/libs', include: '*.jar') } }
+
+import ch.interlis.ilirepository.IliManager
+import ch.interlis.ilirepository.IliResolver
+import ch.interlis.ili2c.ModelScan
+import ch.interlis.ili2c.Ili2c
+import groovy.json.JsonSlurper
+import groovy.json.JsonOutput
+import java.security.MessageDigest
+
+def preparation = new File(project.property('runDirectory').toString())
+def input = new JsonSlurper().parse(new File(preparation, 'input.json'))
+def hashBytes = { byte[] bytes -> MessageDigest.getInstance('SHA-256').digest(bytes).encodeHex().toString() }
+
+tasks.register('prepareModels') {
+    doLast {
+        def requests = []
+        def unavailable = []
+        try {
+            def local = new File(preparation, 'local-models')
+            def reused = new File(preparation, 'reused-models')
+            def localModels = [] as Set
+            local.listFiles().sort { it.name }.each { file ->
+                def scanned = ModelScan.scanIliFile(file)
+                if (scanned == null) throw new GradleException("Cannot scan local model ${file.name}")
+                scanned.iteratorModel().each { model ->
+                    if (!localModels.add(model.name)) throw new GradleException("Duplicate local model ${model.name}")
+                }
+            }
+            input.models.each { name ->
+                if (!localModels.contains(name)) throw new GradleException("Main model ${name} is not defined locally")
+            }
+            // Never let an archived root shadow the current local model, even if its filename changed.
+            reused.listFiles().each { file ->
+                def scanned = ModelScan.scanIliFile(file)
+                if (scanned == null) throw new GradleException("Cannot scan archived model ${file.name}")
+                if (scanned.iteratorModel().any { localModels.contains(it.name) }) file.delete()
+            }
+            def manager = new IliManager()
+            manager.setCache(new File(preparation, 'repository-cache'))
+            manager.setResolver([
+                resolvesUri: { String uri -> uri.startsWith('http://') || uri.startsWith('https://') },
+                resolveIliFile: { String uri, String filename ->
+                    def url = new URI(uri.endsWith('/') ? uri : uri + '/').resolve(filename ?: '').toURL()
+                    requests.add(url.toString())
+                    try {
+                        def connection = url.openConnection()
+                        connection.connectTimeout = 15000
+                        connection.readTimeout = 40000
+                        byte[] bytes
+                        connection.inputStream.withCloseable { stream -> bytes = stream.readNBytes(10_000_001) }
+                        if (bytes.length > 10_000_000) throw new IOException('Repository file exceeds 10 MB')
+                        return new ByteArrayInputStream(bytes)
+                    } catch (FileNotFoundException e) {
+                        if (filename == 'ilimodels.xml') unavailable.add(url.toString())
+                        throw e
+                    } catch (IOException e) {
+                        unavailable.add(url.toString())
+                        throw e
+                    }
+                }
+            ] as IliResolver)
+            def repositories = [local.absolutePath, reused.absolutePath] + (input.modelRepositories ?: [])
+            manager.setRepositories(repositories as String[])
+            def configuration = manager.getConfig(new ArrayList<String>(input.models), 0.0d)
+            def output = new File(preparation, 'models'); output.mkdirs()
+            def fileHashes = new TreeMap()
+            def modelNames = new TreeMap()
+            def seenModels = [] as Set
+            def localFiles = []
+            def rootFiles = []
+            configuration.iteratorFileEntry().each { entry ->
+                def source = new File(entry.filename)
+                if (fileHashes.containsKey(source.name)) throw new GradleException("Duplicate model basename ${source.name}")
+                byte[] bytes = source.bytes
+                if (bytes.length > 10_000_000) throw new GradleException('Model file exceeds 10 MB')
+                def names = []
+                def scanned = ModelScan.scanIliFile(source)
+                if (scanned == null) throw new GradleException("Cannot scan resolved model ${source.name}")
+                scanned.iteratorModel().each { model ->
+                    if (!seenModels.add(model.name)) throw new GradleException("Duplicate resolved model ${model.name}")
+                    names.add(model.name)
+                }
+                def target = new File(output, source.name); target.bytes = bytes
+                entry.filename = target.absolutePath
+                fileHashes[source.name] = hashBytes(bytes)
+                modelNames[source.name] = names.sort()
+                if (names.any { input.models.contains(it) }) rootFiles.add(source.name)
+                if (source.parentFile.canonicalFile == local.canonicalFile) localFiles.add(source.name)
+            }
+            configuration.setAutoCompleteModelList(false)
+            if (Ili2c.runCompiler(configuration) == null) throw new GradleException('Model compilation failed')
+            new File(preparation, 'resolved-models.json').text = JsonOutput.toJson([
+                formatVersion: 1, fileHashes: fileHashes, modelNames: modelNames,
+                localFiles: localFiles.sort(), rootFiles: rootFiles.sort(), repositories: input.modelRepositories ?: [],
+                requests: requests.unique().sort()
+            ])
+        } catch (Exception e) {
+            new File(preparation, 'preparation-error.json').text = JsonOutput.toJson([
+                code: unavailable ? 'MODEL_REPOSITORY_UNAVAILABLE' : ((e.message ?: '').contains('model(s) not found') || (e.message ?: '').contains('model not found') || (e.message ?: '').contains('failed to get ili file') ? 'MODEL_NOT_FOUND' : 'MODEL_PREPARATION_FAILED'),
+                message: e.message ?: e.class.name, requests: requests.unique().sort(), unavailable: unavailable.unique().sort()
+            ])
+            throw e
+        }
+    }
+}

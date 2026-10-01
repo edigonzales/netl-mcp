@@ -44,6 +44,12 @@ public final class JobService {
             item.put("profile",s.effective().get("profile")); item.put("options",s.effective().get("options"));
             var models=new TreeMap<String,String>(); s.files().forEach((k,v)->models.put(k,new String(v,StandardCharsets.UTF_8))); item.put("models",models);
             var inspection=schemas.call("inspect",theme,s.ident()); item.put("status",inspection.get("status"));
+            var evidence=schemas.state(s);
+            if(evidence.containsKey("modelSnapshot") && !"ERROR".equals(inspection.get("status"))) {
+                for(var file:ModelSnapshot.files(schemas.config.workspace,evidence).entrySet())
+                    models.putIfAbsent(file.getKey(),new String(file.getValue(),StandardCharsets.UTF_8));
+                item.put("resolvedModelsHash",evidence.get("resolvedModelsHash"));
+            }
             if(inspection.get("structure") instanceof Map<?,?> structure) {
                 var catalog=new TreeMap<String,Object>();
                 for(String kind:List.of("tables","columns","constraints","geometries")) {
@@ -82,7 +88,13 @@ public final class JobService {
     boolean confirmed(JobConfiguration.Spec s) throws Exception { return s.contract().equals(read(state(s).resolve("confirmation.json")).get("revision")); }
     Map<String,Object> status(JobConfiguration.Spec s) throws Exception {
         var last=read(state(s).resolve("last.json"));
-        return Map.of("status","OK","fingerprint",s.fingerprint(),"expectationsRevision",s.contract(),"confirmed",confirmed(s),"lastRun",last,"current",s.fingerprint().equals(last.get("fingerprint")));
+        var source=schemas.state(s.source()); var target=schemas.state(s.target());
+        boolean recorded=source.containsKey("modelSnapshot") || target.containsKey("modelSnapshot");
+        boolean same="SUCCESS".equals(source.get("status")) && "SUCCESS".equals(target.get("status"))
+            && source.containsKey("resolvedModelsHash") && target.containsKey("resolvedModelsHash")
+            && Objects.equals(last.get("resolvedModels"),Map.of("source",source.get("resolvedModelsHash"),"target",target.get("resolvedModelsHash")));
+        return Map.of("status","OK","fingerprint",s.fingerprint(),"expectationsRevision",s.contract(),"confirmed",confirmed(s),"lastRun",last,
+            "current",s.fingerprint().equals(last.get("fingerprint")) && (!recorded || same),"modelsMatchConfiguredSchemas",same);
     }
     // Separate tool capabilities prevent the author from rewriting the test contract.
     public Map<String,Object> write(String theme,String job,String file,String content,boolean test) {
@@ -175,8 +187,14 @@ public final class JobService {
             result.put("testSchemas",List.of(source.identity(),target.identity()));
             var cleanup=new ArrayList<Map<String,Object>>();
             try {
+                var preparedSource=schemas.prepareModels(s.source(),schemas.reusableModels(s.source()));
+                var preparedTarget=schemas.prepareModels(s.target(),schemas.reusableModels(s.target()));
+                result.put("resolvedModels",Map.of("source",preparedSource.get("resolvedModelsHash"),"target",preparedTarget.get("resolvedModelsHash")));
+                result.put("modelEvidence",Map.of("source",preparedSource,"target",preparedTarget));
+                persist(s,run,result);
                 for(var spec:List.of(source,target)) {
-                    var created=schemas.executeLocked(spec,null,false);
+                    var prepared=spec==source?preparedSource:preparedTarget;
+                    var created=schemas.executeLocked(spec,null,false,prepared);
                     if(!"CREATED".equals(created.get("status"))) throw new Failure(String.valueOf(created.getOrDefault("code","TEST_SCHEMA_FAILED")),created.toString());
                 }
                 try(var a=runtime.connect("edit");var b=runtime.connect("pub")) {
@@ -239,6 +257,13 @@ public final class JobService {
         schemas.requireManaged(s.source()); schemas.requireManaged(s.target());
         var source=schemas.inspect(s.source(),a); var target=schemas.inspect(s.target(),b);
         if(!"MATCHING".equals(source.get("status")) || !"MATCHING".equals(target.get("status"))) throw new Failure("SCHEMA_NOT_MATCHING","Configured schemas must match their managed records; no automatic rebuild");
+        if(!Objects.equals(test.get("resolvedModels"),Map.of("source",schemas.state(s.source()).get("resolvedModelsHash"),"target",schemas.state(s.target()).get("resolvedModelsHash"))))
+            throw new Failure("TEST_REQUIRED","Configured schemas use a different model closure than the passing test");
+        if (!(test.get("modelEvidence") instanceof Map<?,?> evidence)) throw new Failure("TEST_REQUIRED","Passing test lacks model evidence");
+        for(Object item:evidence.values()) {
+            @SuppressWarnings("unchecked") var models=(Map<String,Object>)item;
+            ModelSnapshot.files(schemas.config.workspace,models);
+        }
         return Map.of("source",source,"target",target);
     }
     Map<String,Object> plan(JobConfiguration.Spec s) throws Exception {
@@ -260,7 +285,9 @@ public final class JobService {
             if(!s.fingerprint().equals(planned.get("fingerprint")) || !Json.hash(readiness(s,a,b)).equals(planned.get("inspectionHash"))) throw new Failure("STALE_PLAN","Job, tests or schema evidence changed");
             if(Instant.parse((String)planned.get("createdAt")).plusSeconds(900).isBefore(Instant.now())) throw new Failure("STALE_PLAN","Plan expired");
             Files.delete(path);
-            Path run=snapshot(s,"local"); var result=record(s,run,"local"); persist(s,run,result);
+            Path run=snapshot(s,"local"); var result=record(s,run,"local");
+            result.put("resolvedModels",read(state(s).resolve("test.json")).get("resolvedModels"));
+            persist(s,run,result);
             try(var credentials=new Credentials(a,b,s.source().name(),s.target().name(),false)) {
                 result.put("targetMayHaveChanged",true); persist(s,run,result);
                 execute(s,run,s.source().name(),s.target().name(),credentials,"runner.log"); result.put("gradleSucceeded",true);

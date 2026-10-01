@@ -147,6 +147,14 @@
                 "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$)).+\\.sql$"
               }
             }
+          },
+          "modelRepositories": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "pattern": "^https?://"
+            }
           }
         }
       }

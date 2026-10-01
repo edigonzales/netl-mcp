@@ -133,4 +133,33 @@ class JobIntegrationTest {
         }
         for(String db:List.of("edit","pub")) assertEquals("MATCHING",service.schemas.call("inspect",theme,db).get("status"));
     }
+    @Test void remoteJobTestsReuseRecordedModelsAndDifferentClosureBlocksLocalPlan() throws Exception {
+        try(var repository=new SyntheticModelRepository()) {
+            var manifest=Json.object(Files.readAllBytes(directory.resolve("schemas.json")));
+            for(Object item:(List<?>)manifest.get("schemas")) {
+                @SuppressWarnings("unchecked") var entry=(Map<String,Object>)item;
+                entry.put("modelRepositories",List.of(repository.url()));
+                for(String path:Configuration.strings(entry,"modelFiles")) {
+                    Path file=directory.resolve(path);
+                    String text=Files.readString(file);
+                    int end=text.indexOf('=',text.indexOf("MODEL "));
+                    Files.writeString(file,text.substring(0,end+1)+"\nIMPORTS RemoteTypes;\n"+text.substring(end+1));
+                }
+            }
+            Json.write(directory.resolve("schemas.json"),manifest);
+            for(String db:List.of("edit","pub")) {
+                var result=service.schemas.call("create",theme,db);assertEquals("CREATED",result.get("status"),result.toString());
+            }
+            confirm();assertEquals("PASSED",test().get("status"));
+            repository.change(200);
+            var plan=service.schemas.plan(theme,"edit","recreate",true);assertEquals("READY",plan.get("status"),plan.toString());
+            assertEquals("RECREATED",service.schemas.recreate(theme,"edit",(String)plan.get("planToken")).get("status"));
+            assertEquals("TEST_REQUIRED",service.call("plan",theme,"edit-to-pub",null).get("code"));
+            assertEquals(false,service.call("status",theme,"edit-to-pub",null).get("current"));
+            repository.close();
+            var tested=test();assertEquals("PASSED",tested.get("status"),tested.toString());
+            assertEquals("READY",service.call("plan",theme,"edit-to-pub",null).get("status"));
+        }
+    }
+
 }

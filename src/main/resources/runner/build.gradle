@@ -4,6 +4,7 @@ import groovy.json.JsonOutput
 import groovy.sql.Sql
 
 apply plugin: 'ch.so.agi.gretl'
+apply from: 'resolve-models.gradle'
 def run = new File(project.property('runDirectory').toString())
 def cfg = new JsonSlurper().parse(new File(run, 'input.json'))
 if (!(cfg.database in ['edit', 'pub'])) throw new GradleException('Unsupported local database')

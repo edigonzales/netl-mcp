@@ -1,8 +1,8 @@
-# NETL runtime 0.3.0
+# NETL runtime 0.4.0
 
 Derived from the digest-pinned GRETL 3.2.861 image. Build from the netl-mcp root:
 
-    docker build -f runtime/Dockerfile -t netl/gretl:0.3.0 .
+    docker build -f runtime/Dockerfile -t netl/gretl:0.4.0 .
 
 Schema workflow and standard grants are adapted from sogis/schema-jobs,
 commit c7ab6baa41d8268b46382e753606c54cf40811de, shared/schema,
@@ -10,7 +10,7 @@ shared/privileges and shared/development_tasks (MIT; see SCHEMA-JOBS-LICENSE).
 No production topics, recipients, credentials or downloads are bundled.
 
 Differences: explicit physical names resolved from manifest v1/v2, exclusively
-local copied models, explicit copied SQL hooks, atomic initial schema/role
+frozen local model copies (prepared from explicit local files/repositories), explicit copied SQL hooks, atomic initial schema/role
 creation without dropping existing roles, no development-data download, no
 implicit grant to a privileged development user. Guarded removal of managed
 schemas and role OIDs belongs to NETL's orchestration layer. Standard grants
@@ -33,3 +33,9 @@ never silently adopted. No automatic rebuild or data migration.
 Jobs use temporary non-superuser DML roles and tagged database sessions. Timeout
 recovery terminates both schema and job sessions. Gradle remains executable trusted
 code in the local lab, not a security sandbox.
+
+0.4.0 adds `resolve-models.gradle`: a separate ili2c preparation task with explicit repositories,
+per-resolution cache, local-first lookup, compilation and immutable file hashes. Schema imports use
+only that closure. Recreate plans freeze it before deletion; ordinary rebuilds reuse recorded
+imports, explicit refresh resolves them again. Persisted `t_ili2db_model` contents are verified
+and archived. Changes to runner resources require rebuilding the JAR and image together.
