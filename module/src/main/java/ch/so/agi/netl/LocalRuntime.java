@@ -11,12 +11,14 @@ class LocalRuntime {
     static final String GRETL_IMAGE = "netl/gretl:0.4.0";
     static final String POSTGIS_IMAGE = "postgis/postgis:18-3.6@sha256:60f6ad1d21ea86a67d47780b9a0d1e1d200500f62b19293fa834d0dea80b8677";
     final Path workspace;
-    LocalRuntime(Path workspace) { this.workspace = workspace; }
+    final NetlRuntimeSettings settings;
+    LocalRuntime(Path workspace) { this(NetlRuntimeSettings.fromEnvironment(workspace)); }
+    LocalRuntime(NetlRuntimeSettings settings) { this.settings = settings; this.workspace = settings.workspace(); }
     private Map<?,?> container(String service, String expectedImage) throws Exception {
         Path output = Files.createTempFile("netl-inspect-", ".json");
         byte[] bytes;
         try {
-            var process = new ProcessBuilder("docker", "inspect", "themenintegration-lab-" + service + "-1")
+            var process = new ProcessBuilder("docker", "inspect", settings.containerName(service))
                 .redirectErrorStream(true).redirectOutput(output.toFile()).start();
             if (!process.waitFor(10, TimeUnit.SECONDS)) {
                 process.destroyForcibly();
@@ -31,7 +33,7 @@ class LocalRuntime {
         if (!expectedImage.equals(config.get("Image")) || !Boolean.TRUE.equals(state.get("Running")))
             throw new Failure("ENVIRONMENT_MISMATCH", "Unexpected image or stopped container: " + service);
         Map<?,?> labels = (Map<?,?>)config.get("Labels");
-        if (!"themenintegration-lab".equals(labels.get("com.docker.compose.project")))
+        if (!settings.dockerProject().equals(labels.get("com.docker.compose.project")) || !service.equals(labels.get("com.docker.compose.service")))
             throw new Failure("ENVIRONMENT_MISMATCH", "Unexpected Compose project");
         return info;
     }
@@ -41,10 +43,10 @@ class LocalRuntime {
         for (Object item : (List<?>)info.get("Mounts")) {
             Map<?,?> mount = (Map<?,?>)item;
             if ("/workspace".equals(mount.get("Destination")) &&
-                Path.of((String)mount.get("Source")).toRealPath().equals(workspace.resolve(".netl").toRealPath())) mounted = true;
+                Path.of((String)mount.get("Source")).normalize().equals(settings.container() ? settings.runnerHostMount() : settings.runnerHostMount().toRealPath())) mounted = true;
         }
         if (!mounted) throw new Failure("ENVIRONMENT_MISMATCH", "GRETL must mount this workspace's .netl directory");
-        var args = new ArrayList<>(List.of("docker","exec","themenintegration-lab-gretl-1","sha256sum"));
+        var args = new ArrayList<>(List.of("docker","exec",settings.containerName("gretl"),"sha256sum"));
         var hashes = Configuration.runnerHashes();
         for (String file : hashes.keySet()) args.add(file.equals("netl-run") ? "/usr/local/bin/netl-run" : file.equals("init.gradle") ? "/home/gradle/init.gradle" : "/opt/netl/schema/" + file);
         String[] lines = command(args).strip().split("\n");
@@ -64,9 +66,9 @@ class LocalRuntime {
             Map<?,?> binding = (Map<?,?>)item;
             return "127.0.0.1".equals(binding.get("HostIp")) && Integer.toString(port).equals(binding.get("HostPort"));
         });
-        if (!bound) throw new Failure("ENVIRONMENT_MISMATCH", "Unexpected local database port");
+        if (!settings.container() && !bound) throw new Failure("ENVIRONMENT_MISMATCH", "Unexpected local database port");
         try {
-            return DriverManager.getConnection("jdbc:postgresql://127.0.0.1:" + port + "/" + database + "?connectTimeout=3&socketTimeout=15", "netl", "netl-local");
+            return DriverManager.getConnection(settings.jdbcUrl(database, "netl-mcp"), "netl", "netl-local");
         } catch (SQLException e) {
             throw new Failure("DB_UNAVAILABLE", "Cannot connect to local " + database + " database (SQLState " + e.getSQLState() + ")");
         }
@@ -102,7 +104,7 @@ class LocalRuntime {
         runnerReady();
         Path root = workspace.resolve(".netl").toRealPath(), actual = runDirectory.toRealPath();
         if (!actual.startsWith(root)) throw new Failure("INVALID_CONFIG", "Run outside workspace");
-        var args = new ArrayList<>(List.of("docker", "exec", "--user", "1001", "themenintegration-lab-gretl-1",
+        var args = new ArrayList<>(List.of("docker", "exec", "--user", "1001", settings.containerName("gretl"),
             "netl-run"));
         if (job) args.addAll(List.of("--job-project", "/workspace/" + root.relativize(actual)));
         args.add("-PrunDirectory=/workspace/" + root.relativize(actual));
@@ -125,9 +127,9 @@ class LocalRuntime {
     }
     void recover() throws Exception {
         Path marker = workspace.resolve(".netl/runner-recovery.json");
-        Json.write(marker, Map.of("container", "themenintegration-lab-gretl-1", "reason", "Unconfirmed termination"));
-        command(List.of("docker", "stop", "--time", "5", "themenintegration-lab-gretl-1"));
-        String state = command(List.of("docker", "inspect", "--format", "{{.State.Running}}", "themenintegration-lab-gretl-1")).trim();
+        Json.write(marker, Map.of("container", settings.containerName("gretl"), "reason", "Unconfirmed termination"));
+        command(List.of("docker", "stop", "--time", "5", settings.containerName("gretl")));
+        String state = command(List.of("docker", "inspect", "--format", "{{.State.Running}}", settings.containerName("gretl"))).trim();
         if (!state.equals("false")) throw new Failure("RUNNER_RECOVERY_REQUIRED", "Container stop was not confirmed");
         // Stop database work too: a disconnected client alone does not prove a long
         // server-side statement has finished. Only this runner's tagged sessions.
@@ -137,7 +139,7 @@ class LocalRuntime {
                 while (rs.next()) if (!rs.getBoolean(1)) throw new Failure("RUNNER_RECOVERY_REQUIRED", "Database job did not terminate");
             }
         }
-        command(List.of("docker", "start", "themenintegration-lab-gretl-1"));
+        command(List.of("docker", "start", settings.containerName("gretl")));
         runnerReady();
         Files.delete(marker);
     }

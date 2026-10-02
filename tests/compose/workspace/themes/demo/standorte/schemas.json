@@ -1,0 +1,29 @@
+{
+  "formatVersion": 2,
+  "schemas": [
+    {
+      "ident": "edit",
+      "baseName": "netl_demo_edit",
+      "database": "edit",
+      "profile": "lab-edit-v1",
+      "models": [
+        "Lab_Standorte_Edit"
+      ],
+      "modelFiles": [
+        "modelle/Lab_Standorte_Edit.ili"
+      ]
+    },
+    {
+      "ident": "pub",
+      "baseName": "netl_demo_pub",
+      "database": "pub",
+      "profile": "lab-pub-v1",
+      "models": [
+        "Lab_Standorte_Pub"
+      ],
+      "modelFiles": [
+        "modelle/Lab_Standorte_Pub.ili"
+      ]
+    }
+  ]
+}

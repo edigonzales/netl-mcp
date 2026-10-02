@@ -1,1 +1,3 @@
 rootProject.name = 'netl-mcp'
+include 'netl-mcp-module'
+project(':netl-mcp-module').projectDir = file('module')

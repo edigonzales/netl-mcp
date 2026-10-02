@@ -6,14 +6,14 @@ import org.springframework.boot.*;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.context.annotation.Bean;
 
-@SpringBootApplication
+@SpringBootApplication(scanBasePackages="ch.so.agi.netl.bootstrap")
+@org.springframework.context.annotation.Import(NetlMcpModuleConfiguration.class)
 public class Application {
-    static Path workspace;
-    @Bean io.modelcontextprotocol.server.transport.StdioServerTransportProvider stdioTransport() {
+    @Bean
+    @org.springframework.boot.autoconfigure.condition.ConditionalOnProperty(prefix="spring.ai.mcp.server", name="stdio", havingValue="true")
+    io.modelcontextprotocol.server.transport.StdioServerTransportProvider stdioTransport() {
         return new SerialStdioTransport(io.modelcontextprotocol.json.McpJsonDefaults.getMapper());
     }
-    @Bean SchemaService schemaService() throws Exception { return new SchemaService(workspace); }
-    @Bean JobService jobService() throws Exception { return new JobService(workspace); }
     public static void main(String[] args) throws Exception {
         var arguments=new ArrayList<>(List.of(args));
         String location=System.getenv().getOrDefault("NETL_WORKSPACE", ".");
@@ -22,8 +22,13 @@ public class Application {
             if (w+1>=arguments.size()) { usage(); return; }
             location=arguments.remove(w+1); arguments.remove(w);
         }
-        workspace=Path.of(location);
-        if (arguments.equals(List.of("mcp"))) { SpringApplication.run(Application.class); return; }
+        Path workspace=Path.of(location);
+        if (!arguments.isEmpty() && arguments.getFirst().equals("mcp")) {
+            arguments.removeFirst();
+            if (w>=0) arguments.add("--netl.workspace="+workspace);
+            SpringApplication.run(Application.class, arguments.toArray(String[]::new));
+            return;
+        }
         boolean json=arguments.remove("--json");
         boolean refreshModels=arguments.remove("--refresh-models");
         if (refreshModels && !(arguments.size()==5 && arguments.get(0).equals("schema") && arguments.get(1).equals("plan") && arguments.get(4).equals("recreate"))) { usage(); return; }

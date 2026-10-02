@@ -1,0 +1,56 @@
+name: themenintegration-lab
+services:
+  edit-db:
+    image: postgis/postgis:18-3.6@sha256:60f6ad1d21ea86a67d47780b9a0d1e1d200500f62b19293fa834d0dea80b8677
+    environment:
+      POSTGRES_USER: netl
+      POSTGRES_PASSWORD: netl-local
+      POSTGRES_DB: edit
+    ports: ["127.0.0.1:55431:5432"]
+    volumes: ["./init.sql:/docker-entrypoint-initdb.d/netl.sql:ro"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U netl -d edit"]
+      interval: 2s
+      timeout: 3s
+      retries: 60
+  pub-db:
+    image: postgis/postgis:18-3.6@sha256:60f6ad1d21ea86a67d47780b9a0d1e1d200500f62b19293fa834d0dea80b8677
+    environment:
+      POSTGRES_USER: netl
+      POSTGRES_PASSWORD: netl-local
+      POSTGRES_DB: pub
+    ports: ["127.0.0.1:55432:5432"]
+    volumes: ["./init.sql:/docker-entrypoint-initdb.d/netl.sql:ro"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U netl -d pub"]
+      interval: 2s
+      timeout: 3s
+      retries: 60
+  gretl:
+    extra_hosts: ["host.docker.internal:host-gateway"]
+    image: netl/gretl:0.4.0
+    build:
+      context: ../..
+      dockerfile: runtime/Dockerfile
+    volumes: ["./workspace/.netl:/workspace"]
+    depends_on:
+      edit-db: {condition: service_healthy}
+      pub-db: {condition: service_healthy}
+  mcp:
+    profiles: [server]
+    image: ${MCP_IMAGE:-sogis/netl-mcp:latest}
+    user: "1001:0"
+    group_add: ["${DOCKER_SOCKET_GID:-0}"]
+    environment:
+      NETL_WORKSPACE: /workspace
+      NETL_HOST_WORKSPACE: ${NETL_HOST_WORKSPACE:?Set the absolute host path to tests/compose/workspace}
+      NETL_RUNTIME_MODE: container
+      NETL_DOCKER_PROJECT: themenintegration-lab
+    volumes:
+      - ./workspace:/workspace
+      - ${DOCKER_SOCKET_PATH:-/var/run/docker.sock}:/var/run/docker.sock
+    ports: ["127.0.0.1:18080:8080"]
+    depends_on:
+      edit-db: {condition: service_healthy}
+      pub-db: {condition: service_healthy}
+      gretl: {condition: service_started}

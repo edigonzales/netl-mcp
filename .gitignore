@@ -26,3 +26,8 @@ replay_pid*
 .gradle/
 build/
 !gradle/wrapper/gradle-wrapper.jar
+
+/tests/compose/workspace/.netl/
+/tests/compose/workspace/themes/tests/
+
+__pycache__/

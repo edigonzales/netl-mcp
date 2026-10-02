@@ -1,0 +1,13 @@
+def imageVersion = version.toString()
+def commit = providers.gradleProperty('gitCommit').orElse(providers.provider {
+    providers.exec { commandLine 'git', 'rev-parse', 'HEAD' }.standardOutput.asText.get().trim()
+})
+tasks.register('buildImage', Exec) {
+    group = 'docker'
+    description = 'Builds the tested JVM container for the local Docker architecture.'
+    dependsOn tasks.named('bootJar')
+    commandLine 'docker', 'build', '-f', "$projectDir/docker/Dockerfile",
+        '-t', "sogis/${rootProject.name}:${imageVersion}", '-t', "sogis/${rootProject.name}:latest",
+        '--build-arg', "IMAGE_VERSION=${imageVersion}", '--build-arg', "GIT_COMMIT=${commit.get()}", "$projectDir"
+}
+tasks.register('buildJvmImage') { group = 'docker'; dependsOn tasks.named('buildImage') }

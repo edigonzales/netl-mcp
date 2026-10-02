@@ -15,7 +15,10 @@ public final class JobService {
     final Duration timeout;
     public JobService(Path workspace) throws Exception { this(workspace,Duration.ofSeconds(120)); }
     JobService(Path workspace, Duration timeout) throws Exception {
-        schemas=new SchemaService(workspace); jobs=new JobConfiguration(schemas.config); runtime=schemas.runtime; this.timeout=timeout;
+        this(new SchemaService(NetlRuntimeSettings.fromEnvironment(workspace), timeout), timeout);
+    }
+    public JobService(SchemaService schemas, Duration timeout) {
+        this.schemas=schemas; jobs=new JobConfiguration(schemas.config); runtime=schemas.runtime; this.timeout=timeout;
     }
     Path state(JobConfiguration.Spec job) throws Exception {
         Path p=schemas.config.workspace.resolve(".netl/jobs/"+job.theme()+"/"+job.job()); jobs.safe(p); return p;
@@ -312,7 +315,7 @@ public final class JobService {
             try(var out=Files.newOutputStream(file)) { props.store(out,"Ephemeral local DML credentials"); }
             long start=System.nanoTime(); runtime.executeProject(run,run.resolve(log),timeout,List.of(s.task()),true);
             var measurement=new TreeMap<String,Object>(); measurement.put("elapsedMillis",(System.nanoTime()-start)/1_000_000);
-            measurement.put("containerId",LocalRuntime.command(List.of("docker","inspect","--format","{{.Id}}","themenintegration-lab-gretl-1")).strip());
+            measurement.put("containerId",LocalRuntime.command(List.of("docker","inspect","--format","{{.Id}}",runtime.settings.containerName("gretl"))).strip());
             measurement.put("runtime",read(run.resolve("runtime.json"))); Json.write(run.resolve(log+".runtime.json"),measurement);
         } finally { Files.deleteIfExists(file); }
     }
@@ -348,10 +351,10 @@ public final class JobService {
             }
         }
         Connection connect(String db) throws Exception {
-            return DriverManager.getConnection("jdbc:postgresql://127.0.0.1:"+(db.equals("edit")?55431:55432)+"/"+db+"?ApplicationName=netl-job-"+name+"&connectTimeout=3&socketTimeout=15",name,password);
+            return DriverManager.getConnection(runtime.settings.jdbcUrl(db, "netl-job-"+name),name,password);
         }
         Connection checkConnection() throws Exception {
-            return DriverManager.getConnection("jdbc:postgresql://127.0.0.1:55432/pub?ApplicationName=netl-job-"+name+"&connectTimeout=3&socketTimeout=15",name+"_check",password);
+            return DriverManager.getConnection(runtime.settings.jdbcUrl("pub", "netl-job-"+name),name+"_check",password);
         }
         void revoke(Connection c,String schema) throws Exception {
             try(var st=c.createStatement()) {

@@ -1,0 +1,23 @@
+{
+  "formatVersion": 1,
+  "source": "edit",
+  "target": "pub",
+  "task": "transfer",
+  "sqlFiles": [
+    "sql/standorte.sql"
+  ],
+  "tables": [
+    {
+      "name": "standort",
+      "key": [
+        "kennung"
+      ],
+      "columns": [
+        "kennung",
+        "aname",
+        "organisation",
+        "geometrie"
+      ]
+    }
+  ]
+}

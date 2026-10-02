@@ -1,0 +1,164 @@
+name: verify and publish
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+env:
+  IMAGE_NAME: netl-mcp
+  IMAGE_VERSION: 0.4.${{ github.run_number }}-${{ github.run_attempt }}
+  BUILD_NUMBER: ${{ github.run_number }}
+jobs:
+  application:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: gradle
+      - name: Build and verify canonical artifacts once
+        run: ./gradlew --no-daemon clean check bootJar :netl-mcp-module:publishMavenJavaPublicationToVerificationRepository
+      - name: Verify the module using a fresh external Maven consumer
+        run: python3 tools/verify-module.py --repository build/verification-repository --artifact netl-mcp-module --version 0.4.1-SNAPSHOT
+      - name: Build and start the independent synthetic runtime
+        run: |
+          mkdir -p tests/compose/workspace/.netl
+          chmod -R a+rwX tests/compose/workspace
+          export NETL_HOST_WORKSPACE="$GITHUB_WORKSPACE/tests/compose/workspace"
+          docker compose -f tests/compose/compose.yaml up -d --build --wait edit-db pub-db gretl
+      - name: Check schemas, jobs, locks, permissions and recovery
+        run: ./gradlew --no-daemon integrationTest
+      - name: Check CLI/STDIO parity on the synthetic fixture
+        run: NETL_HOST_WORKSPACE="$GITHUB_WORKSPACE/tests/compose/workspace" python3 scripts/mcp_smoke.py tests/compose/workspace --create --compose-file tests/compose/compose.yaml
+      - name: Check the actual NETL workflow from its container
+        run: |
+          docker build -f docker/Dockerfile -t netl-container-check:ci .
+          python3 tools/netl-container-check.py --image netl-container-check:ci --workspace tests/compose/workspace
+      - name: Stop only the synthetic test project
+        if: always()
+        run: NETL_HOST_WORKSPACE="$GITHUB_WORKSPACE/tests/compose/workspace" docker compose -f tests/compose/compose.yaml down --volumes
+      - name: Archive the exact canonical artifacts with their paths
+        run: tar -czf canonical-artifacts.tar.gz build/libs/netl-mcp.jar module/build/libs module/build/publications
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: canonical-artifacts
+          path: canonical-artifacts.tar.gz
+          if-no-files-found: error
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: failure()
+        with:
+          name: test-reports
+          path: build/reports/
+  images:
+    needs: application
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - architecture: amd64
+            runner: ubuntu-24.04
+          - architecture: arm64
+            runner: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: canonical-artifacts
+          path: .
+      - name: Restore canonical paths
+        run: tar -xzf canonical-artifacts.tar.gz
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f
+      - name: Build using the same canonical JAR on each architecture
+        uses: docker/build-push-action@4f58ea79222b3b9dc2c8bbdd6debcef730109a75
+        with:
+          context: .
+          file: docker/Dockerfile
+          platforms: linux/${{ matrix.architecture }}
+          load: true
+          tags: mcp-verified:ci
+          build-args: |
+            IMAGE_VERSION=${{ env.IMAGE_VERSION }}
+            GIT_COMMIT=${{ github.sha }}
+            SOURCE_REPOSITORY=https://github.com/${{ github.repository }}
+          cache-from: type=gha,scope=netl-mcp-${{ matrix.architecture }}
+          cache-to: type=gha,mode=max,scope=netl-mcp-${{ matrix.architecture }}
+      - name: Verify HTTP, STDIO, catalogs, parallel responses and exact JAR
+        run: python3 tools/check-image.py --kind netl --image mcp-verified:ci --workspace tests/compose/workspace --catalog build/http-catalog.json --jar build/libs/netl-mcp.jar
+      - name: Export the verified image without rebuilding
+        run: docker save mcp-verified:ci | gzip > verified-image.tar.gz
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: verified-image-${{ matrix.architecture }}
+          path: verified-image.tar.gz
+          compression-level: 0
+  publish:
+    needs: [application, images]
+    if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: canonical-artifacts
+          path: .
+      - name: Restore canonical paths
+        run: tar -xzf canonical-artifacts.tar.gz
+      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: gradle
+      - name: Publish the tested module
+        env:
+          MAVEN_USERNAME: ${{ secrets.MAVEN_USERNAME }}
+          MAVEN_PASSWORD: ${{ secrets.MAVEN_PASSWORD }}
+        run: ./gradlew --no-daemon -PpublishCanonicalArtifacts=true :netl-mcp-module:publishMavenJavaPublicationToInterlisGuruSnapshotsRepository
+      - name: Download the published module and transitives with a fresh cache
+        run: python3 tools/verify-module.py --artifact netl-mcp-module --version 0.4.1-SNAPSHOT
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          pattern: verified-image-*
+          path: verified-images
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9
+        with:
+          registry: docker.io
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Publish the verified images, verify both registries, then update latest
+        shell: bash
+        run: |
+          set -euo pipefail
+          owner="${GITHUB_REPOSITORY_OWNER,,}"
+          for architecture in amd64 arm64; do
+            docker load < "verified-images/verified-image-$architecture/verified-image.tar.gz"
+            for image in "docker.io/sogis/$IMAGE_NAME" "ghcr.io/$owner/$IMAGE_NAME"; do
+              docker tag mcp-verified:ci "$image:$IMAGE_VERSION-$architecture"
+              docker push "$image:$IMAGE_VERSION-$architecture"
+            done
+          done
+          for image in "docker.io/sogis/$IMAGE_NAME" "ghcr.io/$owner/$IMAGE_NAME"; do
+            docker buildx imagetools create --tag "$image:$IMAGE_VERSION" "$image:$IMAGE_VERSION-amd64" "$image:$IMAGE_VERSION-arm64"
+            docker buildx imagetools inspect --raw "$image:$IMAGE_VERSION" > manifest.json
+            python3 tools/verify-image-manifest.py manifest.json
+          done
+          for image in "docker.io/sogis/$IMAGE_NAME" "ghcr.io/$owner/$IMAGE_NAME"; do
+            docker buildx imagetools create --tag "$image:latest" "$image:$IMAGE_VERSION"
+            docker buildx imagetools inspect --raw "$image:latest" > manifest.json
+            python3 tools/verify-image-manifest.py manifest.json
+          done

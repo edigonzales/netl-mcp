@@ -13,6 +13,7 @@ import uuid
 parser = argparse.ArgumentParser()
 parser.add_argument('workspace', type=Path)
 parser.add_argument('--create', action='store_true')
+parser.add_argument('--compose-file', type=Path)
 args = parser.parse_args()
 workspace = args.workspace.resolve()
 netl = Path(__file__).resolve().parents[1] / 'bin/netl'
@@ -32,6 +33,7 @@ def physical_name(entry):
     return entry['baseName'] + '_v' + str(entry['schemaVersion'])
 
 for entry in manifest['schemas']:
+    entry.setdefault('schemaVersion', 1)
     entry['baseName'] = 'netl_mcp_' + suffix + '_' + entry['database']
     entry['modelRepositories'] = []
 draft = test_dir / 'draft.json'
@@ -194,7 +196,7 @@ finally:
             for version in range(1, entry['schemaVersion'] + 1):
                 db, name = entry['database'], entry['baseName'] + '_v' + str(version)
                 assert entry['baseName'] == 'netl_mcp_' + suffix + '_' + db
-                subprocess.run(['docker', 'compose', 'exec', '-T', db + '-db', 'psql', '-U', 'netl', '-d', db,
+                subprocess.run(['docker', 'compose'] + (['-f', str(args.compose_file.resolve())] if args.compose_file else []) + ['exec', '-T', db + '-db', 'psql', '-U', 'netl', '-d', db,
                                 '-v', 'ON_ERROR_STOP=1', '-c', 'DROP SCHEMA IF EXISTS "' + name + '" CASCADE; DROP ROLE IF EXISTS "' + name + '_read", "' + name + '_write"'],
                                cwd=workspace, capture_output=True, check=True, timeout=20)
                 (workspace / '.netl/state' / (db + '-' + name + '.json')).unlink(missing_ok=True)

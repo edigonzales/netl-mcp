@@ -10,12 +10,18 @@ public final class SchemaService {
     final LocalRuntime runtime;
     final Duration timeout;
     public SchemaService(Path workspace) throws Exception {
-        this(workspace, Duration.ofSeconds(120));
+        this(NetlRuntimeSettings.fromEnvironment(workspace), Duration.ofSeconds(120));
     }
     SchemaService(Path workspace, Duration timeout) throws Exception {
+        this(NetlRuntimeSettings.fromEnvironment(workspace), timeout);
+    }
+    public SchemaService(NetlRuntimeSettings settings) throws Exception {
+        this(settings, Duration.ofSeconds(120));
+    }
+    SchemaService(NetlRuntimeSettings settings, Duration timeout) throws Exception {
         this.timeout = timeout;
-        config = new Configuration(workspace);
-        runtime = new LocalRuntime(config.workspace);
+        config = new Configuration(settings.workspace());
+        runtime = new LocalRuntime(settings);
     }
     SchemaService(Configuration config, LocalRuntime runtime) {
         this.config = config; this.runtime = runtime; this.timeout = Duration.ofSeconds(120);

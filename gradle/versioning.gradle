@@ -1,0 +1,3 @@
+def run = System.getenv('BUILD_NUMBER') ?: System.getenv('GITHUB_RUN_NUMBER')
+def attempt = System.getenv('GITHUB_RUN_ATTEMPT') ?: '1'
+version = run ? '0.4.' + run + '-' + attempt : '0.4.LOCALBUILD'

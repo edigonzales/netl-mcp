@@ -1,0 +1,16 @@
+**
+!build/
+!build/libs/
+!build/libs/netl-mcp.jar
+!docker/
+!docker/Dockerfile
+
+!module/
+!module/src/
+!module/src/main/
+!module/src/main/resources/
+!module/src/main/resources/runner/
+!module/src/main/resources/runner/**
+!runtime/
+!runtime/Dockerfile
+!runtime/SCHEMA-JOBS-LICENSE

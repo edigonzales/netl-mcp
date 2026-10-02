@@ -1,0 +1,42 @@
+// Keep identical in all three repositories. The suite checks the published module manifests.
+allprojects {
+    group = 'ch.so.agi'
+    repositories {
+        mavenCentral()
+        maven { url = uri('https://jars.interlis.guru/mirror') }
+        maven {
+            url = uri('https://jars.interlis.guru/snapshots/')
+            content {
+                includeModule('ch.so.agi', 'interlis-mcp-module')
+                includeModule('ch.so.agi', 'netl-mcp-module')
+            }
+        }
+    }
+    plugins.withId('java') {
+        java { toolchain { languageVersion = JavaLanguageVersion.of(21) } }
+        tasks.withType(JavaCompile).configureEach {
+            options.release = 21
+            options.encoding = 'UTF-8'
+            options.compilerArgs.add('-parameters')
+        }
+        tasks.withType(Test).configureEach { useJUnitPlatform() }
+        tasks.withType(Javadoc).configureEach {
+            options.addBooleanOption('Xdoclint:none', true)
+            options.quiet()
+        }
+        dependencies {
+            implementation platform('org.springframework.boot:spring-boot-dependencies:4.1.1')
+            implementation platform('org.springframework.ai:spring-ai-bom:2.0.1')
+            implementation platform('io.modelcontextprotocol.sdk:mcp-bom:2.0.1')
+            constraints {
+                implementation('org.jspecify:jspecify:1.0.1') { version { strictly '1.0.1' } }
+                implementation('com.fasterxml.jackson.core:jackson-core:2.21.5') { version { strictly '2.21.5' } }
+                implementation('com.fasterxml.jackson.core:jackson-databind:2.21.5') { version { strictly '2.21.5' } }
+            }
+        }
+        tasks.withType(AbstractArchiveTask).configureEach {
+            preserveFileTimestamps = false
+            reproducibleFileOrder = true
+        }
+    }
+}

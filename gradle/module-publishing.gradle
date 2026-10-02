@@ -1,0 +1,74 @@
+def moduleArtifact = "${rootProject.name}-module"
+def moduleCommit = rootProject.findProperty('gitCommit') ?: providers.exec {
+    workingDir rootProject.projectDir
+    commandLine 'git', 'rev-parse', 'HEAD'
+}.standardOutput.asText.get().trim()
+def generatedMetadata = layout.buildDirectory.dir('generated/module-metadata')
+tasks.register('moduleMetadata') {
+    inputs.property('moduleVersion', version.toString())
+    inputs.property('commit', moduleCommit)
+    inputs.files(configurations.runtimeClasspath)
+    outputs.dir(generatedMetadata)
+    doLast {
+        def dependencies = new TreeMap<String, String>()
+        configurations.runtimeClasspath.resolvedConfiguration.resolvedArtifacts.each {
+            dependencies["${it.moduleVersion.id.group}:${it.name}".toString()] = it.moduleVersion.id.version
+        }
+        def target = generatedMetadata.get().file("META-INF/mcp/${moduleArtifact}.json").asFile
+        target.parentFile.mkdirs()
+        target.text = groovy.json.JsonOutput.prettyPrint(groovy.json.JsonOutput.toJson([
+            artifact: moduleArtifact, version: version.toString(), commit: moduleCommit, dependencies: dependencies
+        ])) + '\n'
+    }
+}
+sourceSets.main.resources.srcDir(generatedMetadata)
+tasks.named('processResources') { dependsOn tasks.named('moduleMetadata') }
+tasks.named('sourcesJar') { dependsOn tasks.named('moduleMetadata') }
+tasks.named('jar') {
+    from(rootProject.file('LICENSE')) { into 'META-INF' }
+    from(rootProject.file('runtime/SCHEMA-JOBS-LICENSE')) { into 'META-INF' }
+}
+publishing {
+    publications {
+        mavenJava(MavenPublication) {
+            artifactId = moduleArtifact
+            from components.java
+            versionMapping { allVariants { fromResolutionResult() } }
+            pom {
+                name = moduleArtifact
+                description = "Reusable MCP module for ${rootProject.name}"
+                url = "https://github.com/edigonzales/${rootProject.name}"
+                licenses { license { name = 'MIT'; url = 'https://opensource.org/licenses/MIT' } }
+            }
+        }
+    }
+    repositories {
+        maven {
+            name = 'interlisGuruSnapshots'
+            url = uri('https://jars.interlis.guru/snapshots/')
+            credentials {
+                username = providers.gradleProperty('mavenRepoUser').orElse(providers.environmentVariable('MAVEN_USERNAME')).orNull
+                password = providers.gradleProperty('mavenRepoPassword').orElse(providers.environmentVariable('MAVEN_PASSWORD')).orNull
+            }
+        }
+        maven { name = 'verification'; url = rootProject.layout.buildDirectory.dir('verification-repository') }
+    }
+}
+
+// CI restores these exact tested artifacts. Publication must not compile or resolve them again.
+if (providers.gradleProperty('publishCanonicalArtifacts').map { it.toBoolean() }.getOrElse(false)) {
+    ['compileJava', 'processResources', 'moduleMetadata', 'jar', 'sourcesJar', 'javadoc', 'javadocJar',
+     'generateMetadataFileForMavenJavaPublication', 'generatePomFileForMavenJavaPublication'].each { taskName ->
+        tasks.named(taskName) { onlyIf { false } }
+    }
+    tasks.withType(org.gradle.api.publish.maven.tasks.PublishToMavenRepository).configureEach {
+        doFirst {
+            ["libs/${moduleArtifact}-${version}.jar", "libs/${moduleArtifact}-${version}-sources.jar",
+             "libs/${moduleArtifact}-${version}-javadoc.jar", 'publications/mavenJava/pom-default.xml',
+             'publications/mavenJava/module.json'].each { path ->
+                if (!layout.buildDirectory.file(path).get().asFile.isFile())
+                    throw new GradleException("Missing canonical artifact: ${path}")
+            }
+        }
+    }
+}

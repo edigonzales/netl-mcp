@@ -1,0 +1,14 @@
+INTERLIS 2.3;
+MODEL Lab_Standorte_Pub (de) AT "https://example.org/netl-test" VERSION "2026-01-01" =
+  DOMAIN
+    Coord = COORD 2400000.000 .. 2900000.000, 1000000.000 .. 1400000.000;
+  TOPIC Standorte =
+    CLASS Standort =
+      Kennung : MANDATORY TEXT*40;
+      AName : MANDATORY TEXT*80;
+      Organisation : MANDATORY TEXT*80;
+      Geometrie : MANDATORY Coord;
+      UNIQUE Kennung;
+    END Standort;
+  END Standorte;
+END Lab_Standorte_Pub.

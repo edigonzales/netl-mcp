@@ -18,7 +18,7 @@ JDK 21 für den Build; `JAVA_HOME` wird vom Launcher berücksichtigt. `NETL_WORK
 zum Startup-Argument verwendet werden. Ein Workspace wird pro Serverprozess festgelegt, nicht je Tool-Aufruf.
 Ohne Angabe gilt das aktuelle Verzeichnis. STDOUT des MCP-Prozesses enthält ausschliesslich JSON-RPC.
 
-Die vollständige Compose-Umgebung und der OpenCode-Agent liegen im benachbarten `themenintegration-lab`.
+Eine eigenständige synthetische Compose-Testumgebung liegt unter `tests/compose/`. Das frühere benachbarte Lab ist für Tests nicht erforderlich.
 Es gibt keine Laufzeitabhängigkeit von `gretljobs`, `schema-jobs` oder `interlis-mcp`.
 
 ## API
@@ -44,13 +44,13 @@ Die CLI beendet sich für Fehler und blockierte/abweichende Zustände mit 1, fü
 
 - `Configuration`: strikte Manifest-/Override-Prüfung, lokale Modelldateien und Fingerprints.
 - `SchemaService`: Ablauf, Zustandsdateien, Wiederholungsregeln und Fehlerprotokolle.
-- `LocalRuntime`: ausschliesslich die dedizierte Docker-Lab-Umgebung; JDBC nur auf festen Loopback-Ports.
+- `LocalRuntime`: ausschliesslich die dedizierte Docker-Lab-Umgebung; JDBC auf Loopback-Ports im Hostbetrieb bzw. auf edit-db/pub-db im Container-Netzwerk.
 - `Database`: normalisierte Katalogaufnahme und PostgreSQL-Advisory-Lock pro Schema.
 - `Application` / `SchemaTools`: CLI-/STDIO-Adapter.
 - `SerialStdioTransport`: serialisiert ausgehende Antworten als Workaround für einen reproduzierten
   SDK-2.0.1-STDIO-Fehler (`Failed to enqueue message`) bei parallelen Tool-Aufrufen. Die Tool-Ausführung
   bleibt parallel möglich. Unit-Test und paralleler STDIO-Smoke-Test sichern dieses Verhalten ab.
-- `src/main/resources/runner`: gemeinsame Schema-/Grant-Logik, im NETL-Image ausgeführt und im JAR gehasht.
+- `module/src/main/resources/runner`: gemeinsame Schema-/Grant-Logik, im NETL-Image ausgeführt und im JAR gehasht.
 - `runtime/Dockerfile`: abgeleitetes `netl/gretl:0.4.0`; Herkunft aus schema-jobs und Lizenz unter `runtime/`.
 - `profiles.json`, `schemas-v1.schema.json`, `schemas-v2.schema.json`: Lab-Profile und Editor-Schemas.
 
@@ -80,12 +80,16 @@ Java 21 läuft auf dem Host; das GRETL-Image verwendet seine eigene Java-Laufzei
 
 ```sh
 ./gradlew test
-# Lab vorher starten, siehe dessen README:
+# Synthetisches Lab starten, siehe tests/compose/README.md:
+export NETL_HOST_WORKSPACE="$PWD/tests/compose/workspace"
+mkdir -p "$NETL_HOST_WORKSPACE/.netl"
+chmod -R a+rwX "$NETL_HOST_WORKSPACE"  # ausschliesslich synthetische Testdaten
+docker compose -f tests/compose/compose.yaml up -d --build --wait edit-db pub-db gretl
 ./gradlew integrationTest
 # Alternativer Lab-Pfad:
 ./gradlew integrationTest -Dnetl.workspace=/absolute/path/to/themenintegration-lab
 ./gradlew bootJar
-python3 scripts/mcp_smoke.py ../themenintegration-lab --create
+python3 scripts/mcp_smoke.py tests/compose/workspace --create --compose-file tests/compose/compose.yaml
 ```
 
 Die Integrationstests verwenden temporäre Themen unter `themes/tests/` und Schemas mit `netl_it_`-Präfix.
@@ -95,7 +99,7 @@ Sperren, Compilerfehler und Timeout. Nur eigene Testschemas werden aufgeräumt; 
 ## Bewusste Grenzen
 
 Nur ein dediziertes Compose-Projekt auf einem Rechner; feste lokale Ports und Containerzuordnung.
-Kein generischer öffentlicher Docker-, SQL- oder Gradle-Executor. Kein HTTP-Server, kein allgemeiner Schema-Drop, keine automatische Reparatur,
+Kein generischer öffentlicher Docker-, SQL- oder Gradle-Executor. Kein allgemeiner Schema-Drop, keine automatische Reparatur,
 Migration, Publikation oder Datenvalidierung. `MATCHING` bestätigt die Übereinstimmung mit einem
 aufgezeichneten erfolgreichen Lauf, keine vollständige fachliche Korrektheit.
 Eine fehlende/defekte Zustandsdatei führt nicht zur Übernahme oder Überschreibung bestehender Schemas.
@@ -229,3 +233,41 @@ Test. Die fachliche Benutzerbestätigung wird durch die Auflösung niemals erset
 Kontrollierte Integrationstests verwenden ein eigenes HTTP-Repository mit synthetischen Modellen.
 Der Runner erreicht den Testserver standardmässig über `host.docker.internal`; bei anderer Docker-
 Netzwerkumgebung `-Dnetl.modelTestHost=<vom Container erreichbarer Host>` setzen.
+
+## Module, Docker und HTTP
+
+Das Root-Projekt bleibt die Standalone-Anwendung samt CLI und `build/libs/netl-mcp.jar`.
+Fachcode und Ressourcen liegen unter `module/`. Das Modul
+`ch.so.agi:netl-mcp-module:0.4.1-SNAPSHOT` wird mit POM, Sources und Javadoc auf
+[jars.interlis.guru](https://jars.interlis.guru/snapshots/) veröffentlicht.
+Eine Hostanwendung importiert `ch.so.agi.netl.NetlMcpModuleConfiguration`.
+Die [MCP-Suite](https://github.com/edigonzales/mcp-suite) importiert zusätzlich INTERLIS
+und bietet beide Module in einer JVM an.
+
+```sh
+./gradlew buildImage
+# Lokaler HTTP-Server; bestehende mcp-Aufrufe bleiben STDIO:
+bin/netl --workspace tests/compose/workspace mcp --spring.profiles.active=http
+# Image mit offline lesbarem Workspace, HTTP auf Loopback:
+docker run --rm -p 127.0.0.1:8080:8080 \
+  -v "$PWD/tests/compose/workspace:/workspace:ro" -e NETL_WORKSPACE=/workspace \
+  sogis/netl-mcp:latest
+# STDIO:
+docker run --rm -i -e SPRING_PROFILES_ACTIVE=stdio \
+  -v "$PWD/tests/compose/workspace:/workspace:ro" -e NETL_WORKSPACE=/workspace \
+  ghcr.io/edigonzales/netl-mcp:latest
+```
+
+Schema-/Jobausführung aus einem Container benötigt zusätzlich `NETL_RUNTIME_MODE=container`,
+`NETL_HOST_WORKSPACE` (absoluter Hostpfad), einen schreibbaren Workspace, Zugriff auf den
+Docker-Socket sowie das gemeinsame Compose-Netzwerk. Der Hostpfad wird für die Prüfung
+des Runner-Mounts verwendet; `NETL_WORKSPACE` benennt den internen Pfad. Alle JDBC-Zugriffe,
+auch temporäre Jobrollen, verwenden dieselben Laufzeiteinstellungen. Docker-CLI ist im Image
+enthalten. Der persistente GRETL-Runner bleibt ein eigener Dienst; Image-/Projekt-/Mount-/Hashprüfungen,
+Sperren und Recovery bleiben aktiv. [Vollständiges Container-Beispiel](tests/compose/README.md).
+
+HTTP verwendet WebMVC, SYNC, Streamable HTTP und `/mcp` auf Port 8080; NETLs fachliche
+120-Sekunden-Fristen bleiben erhalten. Native-Builds werden nicht ausgeführt.
+Die Images für amd64 und arm64 werden aus demselben geprüften JAR gebaut und auf
+Docker Hub sowie GHCR veröffentlicht. Main-Pushes und manuelle Main-Läufe veröffentlichen;
+PRs prüfen ausschliesslich. [Build und Veröffentlichung](docs/MODULES.md).

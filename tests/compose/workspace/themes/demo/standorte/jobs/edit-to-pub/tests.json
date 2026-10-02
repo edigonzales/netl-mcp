@@ -1,0 +1,25 @@
+{
+  "formatVersion": 1,
+  "requirements": "Copy both synthetic sites, preserving the name, organisation and geometry; replace target rows and remain idempotent.",
+  "fixtures": [
+    "fixtures/standorte.sql"
+  ],
+  "assertions": [
+    {
+      "id": "expected",
+      "description": "Synthetic rows: expected",
+      "origin": "user",
+      "scope": "fixture",
+      "expected": "zero_violations",
+      "sql": "assertions/expected.sql"
+    },
+    {
+      "id": "extra",
+      "description": "Synthetic rows: extra",
+      "origin": "user",
+      "scope": "fixture",
+      "expected": "zero_violations",
+      "sql": "assertions/extra.sql"
+    }
+  ]
+}

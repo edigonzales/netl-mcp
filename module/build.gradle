@@ -1,0 +1,19 @@
+plugins {
+    id 'java-library'
+    id 'maven-publish'
+}
+version = '0.4.1-SNAPSHOT'
+base { archivesName = 'netl-mcp-module' }
+java { withSourcesJar(); withJavadocJar() }
+dependencies {
+    api platform('org.springframework.boot:spring-boot-dependencies:4.1.1')
+    api platform('org.springframework.ai:spring-ai-bom:2.0.1')
+    api platform('io.modelcontextprotocol.sdk:mcp-bom:2.0.1')
+    api 'org.springframework.ai:spring-ai-mcp'
+    api 'org.springframework.ai:spring-ai-mcp-annotations'
+    api 'io.modelcontextprotocol.sdk:mcp'
+    api 'org.springframework.boot:spring-boot-starter'
+    api 'org.postgresql:postgresql'
+    api 'com.fasterxml.jackson.core:jackson-databind'
+}
+apply from: "$rootDir/gradle/module-publishing.gradle"
