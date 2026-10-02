@@ -20,7 +20,9 @@ python3 tools/netl-container-check.py --image sogis/netl-mcp:latest --workspace 
 
 Die JVM-Integrationstests verwenden temporäre Themen/Schemas; geprüft werden reale
 Schemaimporte, Modellauflösung, Drift, Berechtigungen, Jobs, Sperren, Wiederverwendung
-des Daemons und Timeout-Recovery. Der Container-Test prüft zusätzlich die Datenbank-
+des Daemons und Timeout-Recovery. Der Container-Test ermittelt unter Linux die Docker-Socket-GID automatisch
+(`--socket-gid`/`DOCKER_SOCKET_GID` für einen ausdrücklichen Override; Docker Desktop standardmässig 0).
+Er prüft zusätzlich die Datenbank-
 DNS-Namen, den Unterschied zwischen Host- und Container-Workspace, temporäre JDBC-Rollen
 und einen tatsächlichen angenommenen GRETL-Transfer über HTTP.
 Die Prüfungen werden nacheinander ausgeführt, da sie denselben Runner-Lock verwenden.

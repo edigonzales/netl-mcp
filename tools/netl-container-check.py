@@ -17,8 +17,9 @@ p.add_argument('--kind',choices=['netl','suite'],default='netl')
 p.add_argument('--workspace',type=Path,required=True)
 p.add_argument('--project',default='themenintegration-lab')
 p.add_argument('--socket',default='/var/run/docker.sock')
-p.add_argument('--socket-gid',default='0')
+p.add_argument('--socket-gid',default=os.environ.get('DOCKER_SOCKET_GID'))
 a=p.parse_args()
+socket_gid=a.socket_gid or str(os.stat(a.socket).st_gid if sys.platform.startswith('linux') else 0)
 workspace=a.workspace.resolve()
 assert workspace == Path(__file__).resolve().parents[1]/'tests/compose/workspace', 'Only the bundled synthetic fixture is allowed'
 spec=importlib.util.spec_from_file_location('smoke',Path(__file__).with_name('mcp-smoke.py'))
@@ -39,10 +40,12 @@ for path in (workspace/'.netl').rglob('*'):
 container=None;client=None
 try:
     container=subprocess.check_output(['docker','run','--rm','-d','--network',a.project+'_default',
-        '--group-add',a.socket_gid,'-p','127.0.0.1::8080',
+        '--group-add',socket_gid,'-p','127.0.0.1::8080',
         '-v',str(workspace)+':/workspace','-v',a.socket+':/var/run/docker.sock',
         '-e','NETL_WORKSPACE=/workspace','-e','NETL_HOST_WORKSPACE='+str(workspace),
         '-e','NETL_RUNTIME_MODE=container','-e','NETL_DOCKER_PROJECT='+a.project,a.image],text=True).strip()
+    subprocess.run(['docker','exec',container,'docker','version'],check=True)
+    subprocess.run(['docker','exec',container,'docker','inspect',a.project+'-gretl-1'],check=True,stdout=subprocess.DEVNULL)
     port=subprocess.check_output(['docker','port',container,'8080/tcp'],text=True).strip().rsplit(':',1)[1]
     url='http://127.0.0.1:'+port+'/mcp'
     kind=a.kind
