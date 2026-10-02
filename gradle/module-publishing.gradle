@@ -46,6 +46,8 @@ publishing {
         maven {
             name = 'interlisGuruSnapshots'
             url = uri('https://jars.interlis.guru/snapshots/')
+            // Reposilite expects Basic authentication on the initial upload request.
+            authentication { basic(org.gradle.authentication.http.BasicAuthentication) }
             credentials {
                 username = providers.gradleProperty('mavenRepoUser').orElse(providers.environmentVariable('MAVEN_USERNAME')).orNull
                 password = providers.gradleProperty('mavenRepoPassword').orElse(providers.environmentVariable('MAVEN_PASSWORD')).orNull
